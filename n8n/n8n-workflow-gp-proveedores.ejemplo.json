@@ -1,0 +1,59 @@
+{
+  "name": "GP Proveedores - Mercado Público en vivo",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "gp-proveedores",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "webhook-gp-1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "url": "https://api.mercadopublico.cl/servicios/v1/publico/licitaciones.json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "estado", "value": "activas" },
+            { "name": "ticket", "value": "PON_AQUI_TU_TICKET_DE_MERCADO_PUBLICO" }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "http-mp-1",
+      "name": "API Mercado Público",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {},
+      "id": "respond-gp-1",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [440, 0]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "API Mercado Público", "type": "main", "index": 0 }]]
+    },
+    "API Mercado Público": {
+      "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

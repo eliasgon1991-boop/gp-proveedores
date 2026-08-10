@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.env.local
+backend/node_modules/
+backend/*.sqlite
+backend/*.db
+# Contiene el ticket real de api.mercadopublico.cl: NUNCA subir
+n8n/n8n-workflow-gp-proveedores.json
