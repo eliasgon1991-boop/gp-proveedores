@@ -118,3 +118,25 @@ drop policy if exists "seguimientos_borrar_propios" on public.seguimientos;
 create policy "seguimientos_borrar_propios"
   on public.seguimientos for delete
   using (auth.uid() = user_id);
+
+-- ═══ Actividad pública de la red (prueba social, 02-09-2026) ═══
+-- Muestra el pulso de la red SIN revelar qué pyme miró qué proceso: la
+-- identidad solo aparece en adjudicaciones (celebración pública). El resto
+-- va anonimizado por rubro ("una pyme de aseo guardó…").
+
+create or replace view public.actividad_publica as
+  select
+    a.tipo,
+    a.proceso_id,
+    a.creado,
+    case when a.tipo = 'postulada' and (a.datos->>'resultado') = 'adjudicada'
+         then p.nombre_pyme end as nombre_pyme,
+    coalesce(p.palabras[1], 'mercado público') as rubro,
+    a.datos->>'titulo' as titulo,
+    a.datos->>'resultado' as resultado
+  from public.acciones_pyme a
+  join public.perfiles p on p.id = a.user_id
+  order by a.creado desc
+  limit 40;
+
+grant select on public.actividad_publica to anon, authenticated;

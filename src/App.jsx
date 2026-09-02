@@ -317,6 +317,7 @@ export default function GPProveedoresFeed() {
   const [conteos, setConteos] = useState({}); // proceso_id → {likes, carro} reales de la red
   const [redPymes, setRedPymes] = useState(null); // null = aún no cargada
   const [pymeVista, setPymeVista] = useState(null); // perfil público abierto
+  const [actividad, setActividad] = useState(null); // pulso público de la red
   const [seguidos, setSeguidos] = useState([]); // organismos que la pyme sigue
   const avisoSeguidos = useRef(false); // el aviso 🔔 se muestra una vez por sesión
   const accionesListas = useRef(false); // recién tras cargar la nube se permite sincronizar de vuelta
@@ -587,10 +588,23 @@ export default function GPProveedoresFeed() {
   useEffect(() => {
     if (panel !== "red" || !supabase || redPymes !== null) return;
     supabase.from("perfiles")
-      .select("id,nombre_pyme,palabras,region,racha_dias,racha_ultima,creado")
+      .select("id,nombre_pyme,palabras,region,racha_dias,racha_ultima,creado,actualizado")
       .order("racha_dias", { ascending: false }).limit(50)
       .then(({ data, error }) => { if (!error) setRedPymes(data || []); });
+    // Pulso de la red: si la vista aún no existe, la sección no se muestra.
+    supabase.from("actividad_publica").select("*").limit(15)
+      .then(({ data, error }) => setActividad(error ? [] : data || []));
   }, [panel, redPymes]);
+
+  const haceCuanto = (iso) => {
+    const min = Math.max(0, Math.round((Date.now() - new Date(iso)) / 60000));
+    if (min < 1) return "recién";
+    if (min < 60) return `hace ${min} min`;
+    const h = Math.round(min / 60);
+    if (h < 24) return `hace ${h} h`;
+    const d = Math.round(h / 24);
+    return `hace ${d} ${d === 1 ? "día" : "días"}`;
+  };
 
   // ── Scroll infinito ──
   useEffect(() => {
@@ -1833,9 +1847,39 @@ export default function GPProveedoresFeed() {
 
         {panel === "red" && (
           <Hoja titulo="Red de pymes" cerrar={() => setPanel(null)} movil={movil}>
-            <p style={{ fontSize: 12.5, color: "#c9c6bf", lineHeight: 1.55, margin: "0 0 14px" }}>
+            <p style={{ fontSize: 12.5, color: "#c9c6bf", lineHeight: 1.55, margin: "0 0 10px" }}>
               Las pymes que ya compiten con GP Proveedores. Toca una para ver su perfil público.
             </p>
+            {redPymes !== null && redPymes.length > 0 && (() => {
+              const activas = redPymes.filter((p) => p.actualizado && Date.now() - new Date(p.actualizado) < 7 * 86400000).length;
+              return activas > 0 ? (
+                <div style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 11.5, fontWeight: 700, color: VERDE, background: "#12251d", border: "1px solid #2b4a3a", borderRadius: 999, padding: "5px 12px", marginBottom: 14 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: VERDE, animation: "brasa 1.6s ease-in-out infinite" }} />
+                  {activas} {activas === 1 ? "pyme activa" : "pymes activas"} esta semana
+                </div>
+              ) : null;
+            })()}
+            {actividad && actividad.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 10.5, color: GOLD_DEEP, fontWeight: 700, letterSpacing: "0.09em", fontFamily: "'IBM Plex Mono', monospace", marginBottom: 8 }}>⚡ ACTIVIDAD DE LA RED</div>
+                {actividad.map((a, i) => {
+                  const que = a.titulo || `el proceso ${a.proceso_id}`;
+                  const linea = a.resultado === "adjudicada"
+                    ? <><strong style={{ color: GOLD }}>🏆 {a.nombre_pyme || "Una pyme"}</strong> se adjudicó «{que}»</>
+                    : a.tipo === "postulada"
+                      ? <>📨 Una pyme de <strong style={{ color: "#d8c8a4" }}>{a.rubro}</strong> postuló a «{que}»</>
+                      : a.tipo === "carro"
+                        ? <>🛒 Una pyme de <strong style={{ color: "#d8c8a4" }}>{a.rubro}</strong> guardó «{que}»</>
+                        : <>❤ A una pyme de <strong style={{ color: "#d8c8a4" }}>{a.rubro}</strong> le interesó {que}</>;
+                  return (
+                    <div key={i} style={{ fontSize: 12, color: "#c9c6bf", lineHeight: 1.5, padding: "7px 0", borderBottom: "1px solid #1b1d26", background: a.resultado === "adjudicada" ? GOLD_BG : "transparent", borderRadius: a.resultado === "adjudicada" ? 8 : 0, paddingLeft: a.resultado === "adjudicada" ? 8 : 0 }}>
+                      {linea}
+                      <span style={{ color: "#6d6d76", fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace" }}> · {haceCuanto(a.creado)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             {!supabase ? (
               <p style={{ fontSize: 13, color: MUTED, margin: 0 }}>La red necesita conexión a cuentas (no disponible en este entorno).</p>
             ) : redPymes === null ? (
