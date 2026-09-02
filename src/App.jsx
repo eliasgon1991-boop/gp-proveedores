@@ -357,6 +357,9 @@ export default function GPProveedoresFeed() {
   const [pymeVista, setPymeVista] = useState(null); // perfil público abierto
   const [actividad, setActividad] = useState(null); // pulso público de la red
   const [ventas, setVentas] = useState(null); // OC reales por RUT (null=aún no, false=error)
+  const [invitaciones, setInvitaciones] = useState(null); // 3 códigos del usuario
+  const [modoGate, setModoGate] = useState("entrar"); // "entrar" | "invitacion"
+  const [gateCodigo, setGateCodigo] = useState("");
   const [comentarios, setComentarios] = useState(null); // hilo del proceso abierto
   const [comentarioTxt, setComentarioTxt] = useState("");
   const [conteosCom, setConteosCom] = useState({}); // proceso_id → nº comentarios
@@ -572,6 +575,41 @@ export default function GPProveedoresFeed() {
       avisar("¡Bienvenido! Cargando tu reparto…");
       setCuentaClave("");
       setPanel(null);
+    } finally { setCuentaOcupada(false); }
+  };
+
+  // ── Invitaciones: 3 códigos por pyme (los genera la RPC en la nube) ──
+  useEffect(() => {
+    if (panel !== "cuenta" || !supabase || !sesion || invitaciones !== null) return;
+    supabase.rpc("mis_invitaciones").then(({ data, error }) => setInvitaciones(error ? [] : data || []));
+  }, [panel, sesion]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const textoInvitacion = (codigo) =>
+    `Te invito a GP Proveedores 🚀 la app privada donde las pymes encontramos dónde vender al Estado (licitaciones reales de Mercado Público calzadas a tu rubro). Solo se entra con invitación — este es tu código: ${codigo}. Canjéalo en ${URL_APP}`;
+
+  const canjearInvitacion = async () => {
+    if (!supabase) return;
+    const email = cuentaEmail.trim().toLowerCase();
+    const codigo = gateCodigo.trim().toUpperCase();
+    if (!/^\S+@\S+\.\S+$/.test(email)) { avisar("Escribe un correo válido"); return; }
+    if (cuentaClave.length < 6) { avisar("Crea una clave de al menos 6 caracteres"); return; }
+    if (codigo.length < 4) { avisar("Ingresa tu código de invitación"); return; }
+    setCuentaOcupada(true);
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email, password: cuentaClave,
+        options: { data: { codigo_invitacion: codigo } },
+      });
+      if (error) {
+        avisar(/invitaci/i.test(error.message)
+          ? "Ese código no es válido o ya fue usado"
+          : /already registered/i.test(error.message)
+            ? "Ese correo ya tiene cuenta: usa Entrar"
+            : "No se pudo canjear: " + error.message);
+        return;
+      }
+      if (data.session) { avisar("🎟 ¡Bienvenido a la red! Configura tu pyme para armar tu reparto"); setCuentaClave(""); }
+      else avisar("Cuenta creada ✓ Revisa tu correo para confirmarla y luego entra");
     } finally { setCuentaOcupada(false); }
   };
 
@@ -1698,22 +1736,33 @@ export default function GPProveedoresFeed() {
           <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: GOLD_DEEP, fontFamily: "'IBM Plex Mono', monospace", marginBottom: 18 }}>
             ⬖ Acceso privado · beta
           </div>
-          <p style={{ fontSize: 13, color: "#c9c6bf", lineHeight: 1.6, margin: "0 0 18px" }}>
-            Entra con la cuenta y clave que te asignamos. ¿Aún no tienes acceso?
-            Pídelo desde la página y te contactamos.
+          <p style={{ fontSize: 13, color: "#c9c6bf", lineHeight: 1.6, margin: "0 0 16px" }}>
+            {modoGate === "entrar"
+              ? "Entra con tu cuenta. ¿Te llegó un código? Canjéalo abajo y únete a la red."
+              : "Canjea tu código: crea tu cuenta y entra al tiro a tu reparto de oportunidades."}
           </p>
+          {modoGate === "invitacion" && (
+            <div style={{ marginBottom: 10 }}>
+              <input value={gateCodigo} onChange={(e) => setGateCodigo(e.target.value.toUpperCase())} placeholder="Código de invitación (ej: GP-4F7A2C)" aria-label="Código de invitación"
+                style={{ width: "100%", padding: "13px 14px", borderRadius: 13, border: `1.5px solid ${GOLD_DEEP}`, background: CARD2, color: GOLD, fontSize: 14, fontFamily: "'IBM Plex Mono', monospace", outline: "none", letterSpacing: "0.06em" }} />
+            </div>
+          )}
           <div style={{ marginBottom: 10 }}>
             <input value={cuentaEmail} onChange={(e) => setCuentaEmail(e.target.value)} type="email" placeholder="correo@tupyme.cl" aria-label="Correo" autoComplete="username"
               style={{ width: "100%", padding: "13px 14px", borderRadius: 13, border: `1.5px solid ${BORDE}`, background: CARD2, color: PAPER, fontSize: 14, fontFamily: "'Manrope', sans-serif", outline: "none" }} />
           </div>
           <div style={{ marginBottom: 16 }}>
-            <input value={cuentaClave} onChange={(e) => setCuentaClave(e.target.value)} type="password" placeholder="Clave asignada" aria-label="Clave" autoComplete="current-password"
-              onKeyDown={(e) => { if (e.key === "Enter") entrarCuenta(); }}
+            <input value={cuentaClave} onChange={(e) => setCuentaClave(e.target.value)} type="password" placeholder={modoGate === "invitacion" ? "Crea tu clave (mínimo 6)" : "Clave"} aria-label="Clave" autoComplete={modoGate === "invitacion" ? "new-password" : "current-password"}
+              onKeyDown={(e) => { if (e.key === "Enter") (modoGate === "invitacion" ? canjearInvitacion : entrarCuenta)(); }}
               style={{ width: "100%", padding: "13px 14px", borderRadius: 13, border: `1.5px solid ${BORDE}`, background: CARD2, color: PAPER, fontSize: 14, fontFamily: "'Manrope', sans-serif", outline: "none" }} />
           </div>
-          <button onClick={entrarCuenta} disabled={cuentaOcupada}
+          <button onClick={modoGate === "invitacion" ? canjearInvitacion : entrarCuenta} disabled={cuentaOcupada}
             style={{ ...btn({ fondo: GOLD, borde: GOLD, color: SOBRE_GOLD, peso: 800 }), width: "100%", padding: "14px 10px", fontSize: 15, opacity: cuentaOcupada ? 0.6 : 1, boxShadow: "0 0 12px rgba(239,183,0,.35)" }}>
-            {cuentaOcupada ? "Un momento…" : "Entrar a mi reparto"}
+            {cuentaOcupada ? "Un momento…" : modoGate === "invitacion" ? "🎟 Canjear mi invitación" : "Entrar a mi reparto"}
+          </button>
+          <button onClick={() => setModoGate(modoGate === "invitacion" ? "entrar" : "invitacion")}
+            style={{ ...btn({ fondo: "transparent", borde: "transparent", color: GOLD_DEEP }), width: "100%", marginTop: 8, fontSize: 12.5, fontWeight: 700 }}>
+            {modoGate === "invitacion" ? "← Ya tengo cuenta: entrar" : "🎟 Tengo un código de invitación"}
           </button>
           <button onClick={() => (window.__gpSalir ? window.__gpSalir() : null)}
             style={{ ...btn({ fondo: "transparent", borde: "transparent", color: MUTED }), width: "100%", marginTop: 10, fontSize: 12.5 }}>
@@ -2275,9 +2324,33 @@ export default function GPProveedoresFeed() {
                   <input value={nombrePyme} onChange={(e) => setNombrePyme(e.target.value)} placeholder="Ej: Servicios Rojas SpA" aria-label="Nombre público de tu pyme"
                     style={{ width: "100%", padding: "11px 13px", borderRadius: 12, border: `1.5px solid ${BORDE}`, background: CARD2, color: PAPER, fontSize: 13.5, fontFamily: "'Manrope', sans-serif", outline: "none" }} />
                 </div>
-                <button onClick={() => { guardarPerfilNube(); avisar("Cuenta actualizada ✓"); }} style={{ ...btn({ fondo: GOLD, borde: GOLD, color: SOBRE_GOLD, peso: 800 }), width: "100%", marginBottom: 10 }}>
+                <button onClick={() => { guardarPerfilNube(); avisar("Cuenta actualizada ✓"); }} style={{ ...btn({ fondo: GOLD, borde: GOLD, color: SOBRE_GOLD, peso: 800 }), width: "100%", marginBottom: 14 }}>
                   Guardar cambios
                 </button>
+                <div style={{ fontSize: 10.5, color: GOLD_DEEP, fontWeight: 700, letterSpacing: "0.09em", fontFamily: "'IBM Plex Mono', monospace", marginBottom: 8 }}>🎟 TUS 3 INVITACIONES</div>
+                <p style={{ fontSize: 11.5, color: MUTED, lineHeight: 1.5, margin: "0 0 10px" }}>
+                  GP Proveedores crece solo por invitación. Comparte tus códigos con pymes que quieras en la red.
+                </p>
+                {invitaciones === null && <div style={{ fontSize: 12, color: MUTED, marginBottom: 10 }}>Cargando tus códigos…</div>}
+                {invitaciones && invitaciones.length === 0 && (
+                  <div style={{ fontSize: 11.5, color: MUTED, marginBottom: 10 }}>Las invitaciones se activarán pronto para tu cuenta.</div>
+                )}
+                {(invitaciones || []).map((inv) => (
+                  <div key={inv.codigo} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 11px", borderRadius: 12, border: `1px solid ${inv.usado_por ? BORDE : GOLD_DEEP}`, background: inv.usado_por ? CARD2 : GOLD_BG, marginBottom: 7 }}>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13.5, color: inv.usado_por ? MUTED : GOLD, textDecoration: inv.usado_por ? "line-through" : "none" }}>{inv.codigo}</span>
+                    {inv.usado_por ? (
+                      <span style={{ marginLeft: "auto", fontSize: 10.5, color: VERDE, fontFamily: "'IBM Plex Mono', monospace" }}>✓ canjeada</span>
+                    ) : (
+                      <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                        <button onClick={() => copiar(textoInvitacion(inv.codigo), "Invitación copiada: pégala donde quieras")}
+                          style={{ background: "none", border: `1px solid ${BORDE}`, borderRadius: 8, color: "#c9c6bf", cursor: "pointer", fontSize: 10.5, padding: "4px 8px", fontWeight: 700 }}>Copiar</button>
+                        <button onClick={() => window.open("https://wa.me/?text=" + encodeURIComponent(textoInvitacion(inv.codigo)), "_blank")}
+                          style={{ background: "none", border: "1px solid #2b4a3a", borderRadius: 8, color: VERDE, cursor: "pointer", fontSize: 10.5, padding: "4px 8px", fontWeight: 700 }}>WhatsApp</button>
+                      </span>
+                    )}
+                  </div>
+                ))}
+                <div style={{ height: 10 }} />
                 <button onClick={salirCuenta} style={{ ...btn({ fondo: "transparent", borde: BORDE, color: MUTED }), width: "100%" }}>
                   Cerrar sesión
                 </button>

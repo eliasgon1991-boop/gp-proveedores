@@ -192,3 +192,56 @@ create or replace view public.comentarios_publicos as
   order by c.creado asc;
 
 grant select on public.comentarios_publicos to anon, authenticated;
+
+-- ═══ Invitaciones virales (02-09-2026) · EJECUTAR MANUALMENTE ═══
+-- Cada pyme recibe 3 códigos. El trigger sobre auth.users EXIGE un código
+-- válido para registrarse: se puede abrir el registro público sin perder
+-- la exclusividad. Tras ejecutar esto, en Authentication → Sign In/Providers:
+--   1) ACTIVAR  "Allow new users to sign up"
+--   2) DESACTIVAR "Confirm email"  (los invitados entran al instante)
+
+create table if not exists public.invitaciones (
+  codigo    text primary key,
+  creador   uuid not null references auth.users (id) on delete cascade,
+  usado_por uuid references auth.users (id),
+  creado    timestamptz not null default now(),
+  usado_en  timestamptz
+);
+alter table public.invitaciones enable row level security;
+drop policy if exists "invitaciones_ver_propias" on public.invitaciones;
+create policy "invitaciones_ver_propias" on public.invitaciones for select using (auth.uid() = creador);
+
+-- Entrega (y genera hasta completar) los 3 códigos del usuario.
+create or replace function public.mis_invitaciones()
+returns setof public.invitaciones language plpgsql security definer as $$
+declare n int;
+begin
+  select count(*) into n from public.invitaciones where creador = auth.uid();
+  while n < 3 loop
+    insert into public.invitaciones (codigo, creador)
+    values ('GP-' || upper(substr(md5(random()::text), 1, 6)), auth.uid())
+    on conflict do nothing;
+    select count(*) into n from public.invitaciones where creador = auth.uid();
+  end loop;
+  return query select * from public.invitaciones where creador = auth.uid() order by creado;
+end $$;
+grant execute on function public.mis_invitaciones() to authenticated;
+
+-- Guardián del registro: sin código válido no hay cuenta.
+create or replace function public.validar_invitacion()
+returns trigger language plpgsql security definer as $$
+declare cod text; ok int;
+begin
+  cod := upper(coalesce(new.raw_user_meta_data->>'codigo_invitacion', ''));
+  update public.invitaciones set usado_por = new.id, usado_en = now()
+    where codigo = cod and usado_por is null;
+  get diagnostics ok = row_count;
+  if ok = 0 then
+    raise exception 'Necesitas un código de invitación válido para unirte a GP Proveedores';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists exigir_invitacion on auth.users;
+create trigger exigir_invitacion before insert on auth.users
+  for each row execute function public.validar_invitacion();
