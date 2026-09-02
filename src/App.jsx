@@ -37,7 +37,8 @@ const VERDE_MONTO = "#55d68c";
 const SOMBRA_CARD = "0 50px 100px -50px rgba(0,0,0,.9)";
 const GLOW_ORO = "0 0 12px rgba(239,183,0,.5)";
 
-const URL_DEMO = "https://app.gestorpublico.cl/oportunidad/";
+const URL_APP = "https://proveedores.gestorpublico.cl";
+const URL_DEMO = URL_APP + "/#"; // los enlaces compartidos llevan a la landing
 const ENDPOINT_DATOS =
   import.meta.env.VITE_ENDPOINT_DATOS ?? "https://egonzalezm.app.n8n.cloud/webhook/gp-proveedores";
 const ENDPOINT_BACKEND = import.meta.env.VITE_ENDPOINT_BACKEND ?? ""; // ej: "https://gp-backend.up.railway.app"
@@ -453,10 +454,18 @@ export default function GPProveedoresFeed() {
     if (!supabase || !sesion) { accionesListas.current = false; return; }
     let cancelado = false;
     (async () => {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from("acciones_pyme").select("proceso_id,tipo,datos").eq("user_id", sesion.user.id);
       if (cancelado) return;
-      if (error) { accionesListas.current = true; return; } // sin tabla o sin red: sigue local
+      if (error) {
+        // Reintento único (p. ej. token recién refrescado tras restaurar sesión).
+        await new Promise((s) => setTimeout(s, 2500));
+        if (cancelado) return;
+        ({ data, error } = await supabase.from("acciones_pyme").select("proceso_id,tipo,datos").eq("user_id", sesion.user.id));
+      }
+      // REGLA DE ORO: si la nube no se pudo LEER, jamás se habilita la
+      // escritura — así un fallo de carga no puede borrar lo guardado.
+      if (cancelado || error) return;
       const likes = data.filter((a) => a.tipo === "like").map((a) => a.proceso_id);
       const carro = data.filter((a) => a.tipo === "carro").map((a) => a.datos).filter(Boolean);
       const postu = data.filter((a) => a.tipo === "postulada").map((a) => a.datos).filter(Boolean);
@@ -520,8 +529,13 @@ export default function GPProveedoresFeed() {
         ...guardadas.map((g) => ({ user_id: uid, proceso_id: g.id, tipo: "carro", datos: g })),
         ...postuladas.map((g) => ({ user_id: uid, proceso_id: g.id, tipo: "postulada", datos: g })),
       ];
+      // Nunca vaciar la nube por completo desde un estado local vacío: si no
+      // hay nada que subir, solo se permite tras una carga exitosa con datos
+      // que el usuario luego quitó uno a uno (accionesListas lo garantiza),
+      // y aun así lo hacemos fila a fila en vez de un delete total.
+      if (filas.length === 0) return;
       const { error } = await supabase.from("acciones_pyme").delete().eq("user_id", uid);
-      if (!error && filas.length) await supabase.from("acciones_pyme").insert(filas);
+      if (!error) await supabase.from("acciones_pyme").insert(filas);
     }, 900);
     return () => clearTimeout(sincroTimer.current);
   }, [gustadas, guardadas, postuladas, sesion]);
@@ -878,21 +892,81 @@ export default function GPProveedoresFeed() {
     window.open("https://www.linkedin.com/sharing/share-offsite/?url=" + encodeURIComponent(urlOportunidad(o)), "_blank");
     setPanel(null);
   };
-  const publicarAdjudicacion = async (o) => {
-    const post = [
-      "Tenemos una buena noticia que compartir.",
-      "",
-      `Nuestra empresa se adjudicó el proceso ID ${o.id} de ${o.organismo}: ${o.titulo.toLowerCase()}.`,
-      "",
-      "Detrás de cada adjudicación hay un equipo que leyó las bases con calma, preparó una oferta seria y cumplió cada requisito. Gracias a quienes lo hicieron posible.",
-      "",
-      "Seguimos creciendo como proveedores del Estado de Chile.",
-      "",
-      "#MercadoPublico #ComprasPublicas #Pymes",
-    ].join("\n");
-    await copiar(post, "Post copiado: pégalo en LinkedIn");
-    window.open("https://www.linkedin.com/sharing/share-offsite/?url=" + encodeURIComponent(urlOportunidad(o)), "_blank");
-    setPanel(null);
+  // ── Tarjeta de adjudicación: imagen con marca + post listo ──
+  const [brindis, setBrindis] = useState(null);
+  const lienzoBrindis = useRef(null);
+  const publicarAdjudicacion = (o) => { setBrindis(o); setPanel("brindis"); };
+
+  const textoAdjudicacion = (o) => [
+    "Tenemos una buena noticia que compartir. 🏆",
+    "",
+    `${nombrePyme.trim() || "Nuestra empresa"} se adjudicó el proceso ID ${o.id} de ${o.organismo}: ${o.titulo.toLowerCase()}.`,
+    "",
+    "Detrás de cada adjudicación hay un equipo que leyó las bases con calma, preparó una oferta seria y cumplió cada requisito. Gracias a quienes lo hicieron posible.",
+    "",
+    `Encontramos esta oportunidad con GP Proveedores 🚀 ${URL_APP}`,
+    "",
+    "#MercadoPublico #ComprasPublicas #Pymes",
+  ].join("\n");
+
+  // Dibuja la tarjeta 1200×630 (formato LinkedIn) en el canvas del panel.
+  useEffect(() => {
+    if (panel !== "brindis" || !brindis || !lienzoBrindis.current) return;
+    const cv = lienzoBrindis.current;
+    const ctx = cv.getContext("2d");
+    const W = 1200, H = 630;
+    const envolver = (texto, x, y, maxAncho, altoLinea, maxLineas) => {
+      const palabras = (texto || "").split(/\s+/);
+      let linea = "", lineas = 0;
+      for (const p of palabras) {
+        const prueba = linea ? linea + " " + p : p;
+        if (ctx.measureText(prueba).width > maxAncho && linea) {
+          if (++lineas === maxLineas) { ctx.fillText(linea.replace(/.{3}$/, "…"), x, y); return y; }
+          ctx.fillText(linea, x, y); y += altoLinea; linea = p;
+        } else linea = prueba;
+      }
+      if (linea) ctx.fillText(linea, x, y);
+      return y;
+    };
+    const pintar = (logo) => {
+      ctx.fillStyle = "#0a0a09"; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = GOLD; ctx.fillRect(0, 0, W, 10);
+      const grad = ctx.createRadialGradient(W - 150, 120, 20, W - 150, 120, 420);
+      grad.addColorStop(0, "rgba(239,183,0,.16)"); grad.addColorStop(1, "rgba(239,183,0,0)");
+      ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+      if (logo) { ctx.save(); ctx.beginPath(); ctx.roundRect(70, 60, 88, 88, 20); ctx.clip(); ctx.drawImage(logo, 70, 60, 88, 88); ctx.restore(); }
+      ctx.fillStyle = "#f2efe9"; ctx.font = "800 30px Manrope, sans-serif"; ctx.fillText("GP Proveedores", 180, 100);
+      ctx.fillStyle = "#9a9aa4"; ctx.font = "500 20px Manrope, sans-serif"; ctx.fillText("Mercado Público, a domicilio", 180, 132);
+      ctx.fillStyle = GOLD; ctx.font = "800 64px Manrope, sans-serif"; ctx.fillText("🏆 ¡Adjudicado!", 70, 250);
+      ctx.fillStyle = "#f2efe9"; ctx.font = "700 34px Manrope, sans-serif";
+      const yTit = envolver(brindis.titulo, 70, 320, W - 160, 46, 3);
+      ctx.fillStyle = "#c9c6bf"; ctx.font = "500 26px Manrope, sans-serif";
+      envolver(`${brindis.organismo} · ID ${brindis.id}`, 70, yTit + 56, W - 160, 34, 2);
+      if ((brindis.monto || "").startsWith("$") || (brindis.monto || "").startsWith("Hasta")) {
+        ctx.fillStyle = "#55d68c"; ctx.font = "700 30px 'IBM Plex Mono', monospace"; ctx.fillText(brindis.monto, 70, yTit + 130);
+      }
+      ctx.fillStyle = "#141311"; ctx.fillRect(0, H - 86, W, 86);
+      ctx.fillStyle = GOLD; ctx.font = "800 24px Manrope, sans-serif";
+      ctx.fillText(nombrePyme.trim() || "Proveedor del Estado de Chile", 70, H - 34);
+      ctx.fillStyle = "#9a9aa4"; ctx.font = "600 22px 'IBM Plex Mono', monospace";
+      const marca = "proveedores.gestorpublico.cl";
+      ctx.fillText(marca, W - 70 - ctx.measureText(marca).width, H - 34);
+    };
+    const img = new Image();
+    img.onload = () => pintar(img);
+    img.onerror = () => pintar(null);
+    img.src = "/logo-gestor-publico.png";
+  }, [panel, brindis]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const descargarBrindis = () => {
+    lienzoBrindis.current?.toBlob((blob) => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `adjudicacion-${brindis?.id || "gp"}.png`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      avisar("Imagen descargada: adjúntala a tu publicación 📎");
+    }, "image/png");
   };
 
   // ── Perfil ──
@@ -2070,6 +2144,33 @@ export default function GPProveedoresFeed() {
                 <span key={p} style={{ fontSize: 12.5, fontWeight: 700, padding: "7px 12px", borderRadius: 999, background: GOLD_BG, border: `1.5px solid ${GOLD}`, color: GOLD }}>{p}</span>
               ))}
             </div>
+          </Hoja>
+        )}
+
+        {panel === "brindis" && brindis && (
+          <Hoja titulo="🏆 Comparte tu adjudicación" cerrar={() => { setPanel("carro"); setBrindis(null); }} movil={movil}>
+            <p style={{ fontSize: 12.5, color: "#c9c6bf", lineHeight: 1.55, margin: "0 0 12px" }}>
+              Tu victoria merece vitrina: descarga la tarjeta y publícala con el texto listo.
+              Cada publicación te posiciona como proveedor que gana en Mercado Público.
+            </p>
+            <canvas ref={lienzoBrindis} width={1200} height={630}
+              style={{ width: "100%", borderRadius: 14, border: `1px solid ${GOLD_DEEP}`, display: "block", marginBottom: 12 }} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <button onClick={descargarBrindis} style={{ ...btn({ fondo: GOLD, borde: GOLD, color: SOBRE_GOLD, peso: 800 }), width: "100%" }}>
+                ⬇ Descargar imagen
+              </button>
+              <button onClick={async () => { await copiar(textoAdjudicacion(brindis), "Post copiado: pégalo en LinkedIn junto a la imagen"); window.open("https://www.linkedin.com/feed/?shareActive=true", "_blank"); }}
+                style={{ ...btn({ fondo: "transparent", borde: "#0a66c2", color: "#7fb4e8" }), width: "100%" }}>
+                in · Copiar post y abrir LinkedIn
+              </button>
+              <button onClick={() => window.open("https://wa.me/?text=" + encodeURIComponent(textoAdjudicacion(brindis)), "_blank")}
+                style={{ ...btn({ fondo: "transparent", borde: "#2b4a3a", color: VERDE }), width: "100%" }}>
+                ✆ Compartir por WhatsApp
+              </button>
+            </div>
+            <p style={{ fontSize: 10.5, color: "#6d6d76", lineHeight: 1.5, margin: "12px 0 0" }}>
+              Consejo: en LinkedIn adjunta la imagen descargada y pega el texto — las publicaciones con imagen rinden hasta 2× más.
+            </p>
           </Hoja>
         )}
 
