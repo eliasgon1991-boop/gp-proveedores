@@ -12,9 +12,9 @@ const CARD = "#12141c";
 const CARD_GRAD = "linear-gradient(180deg, #1b1d26, #12141c)";
 const CARD2 = "#1b1d26";
 const BORDE = "#2a2e3a";
-const GOLD = "#e9b44c";
-const GOLD_DEEP = "#a8853f";
-const GOLD_BG = "rgba(233,180,76,.06)";
+const GOLD = "#EFB700"; // dorado corporativo Gestor Público
+const GOLD_DEEP = "#a97f00";
+const GOLD_BG = "rgba(239,183,0,.06)";
 const SOBRE_GOLD = "#17130a"; // texto sobre superficies doradas
 const PAPER = "#f2efe9";
 const MUTED = "#9a9aa4";
@@ -22,7 +22,7 @@ const ROJO = "#ff6b5a";
 const VERDE = "#6fbf9a";
 const VERDE_MONTO = "#55d68c";
 const SOMBRA_CARD = "0 50px 100px -50px rgba(0,0,0,.9)";
-const GLOW_ORO = "0 0 12px rgba(233,180,76,.5)";
+const GLOW_ORO = "0 0 12px rgba(239,183,0,.5)";
 
 const URL_DEMO = "https://app.gestorpublico.cl/oportunidad/";
 const ENDPOINT_DATOS =
@@ -260,7 +260,7 @@ function CalceAnimado({ o }) {
         <span style={{ color: MUTED }}>{o.joya ? "💎 Calce con tu pyme" : "Calce con tu pyme"}</span>
         <span style={{
           color: o.similar ? "#c9c6bf" : o.match >= 85 ? "#ffd479" : o.match >= 60 ? GOLD_DEEP : "#6d6d76",
-          textShadow: !o.similar && o.match >= 85 ? "0 0 14px rgba(233,180,76,.55)" : "none",
+          textShadow: !o.similar && o.match >= 85 ? "0 0 14px rgba(239,183,0,.55)" : "none",
           fontWeight: 800, fontFamily: "'IBM Plex Mono', monospace", display: "inline-block",
           animation: flash ? "flashOro .7s ease" : "none",
         }}>{val}%</span>
@@ -876,7 +876,7 @@ export default function GPProveedoresFeed() {
         {anillo && (
           <span aria-hidden="true" style={{
             position: "absolute", inset: -5, borderRadius: "50%",
-            border: "2px solid rgba(233,180,76,.15)", borderTopColor: GOLD,
+            border: "2px solid rgba(239,183,0,.15)", borderTopColor: GOLD,
             animation: "orbitSpin 1.3s linear infinite", pointerEvents: "none", zIndex: 1,
           }} />
         )}
@@ -996,7 +996,7 @@ export default function GPProveedoresFeed() {
         display: "flex", flexDirection: "column",
         cursor: "grab",
         boxShadow: actual.joya
-          ? (movil ? "inset 0 0 60px rgba(233,180,76,.08)" : `${SOMBRA_CARD}, 0 0 46px rgba(233,180,76,.28)`)
+          ? (movil ? "inset 0 0 60px rgba(239,183,0,.08)" : `${SOMBRA_CARD}, 0 0 46px rgba(239,183,0,.28)`)
           : movil ? "none" : SOMBRA_CARD,
         zIndex: 2,
         ...cardStyle,
@@ -1034,7 +1034,7 @@ export default function GPProveedoresFeed() {
         </span>
         <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
           {enRonda && !actual.joya && !rachaHoy && (
-            <span title="La mejor oportunidad de hoy espera al final de la ronda" style={{ fontSize: 10, fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace", color: GOLD_DEEP, border: `1px solid rgba(233,180,76,.18)`, borderRadius: 999, padding: "3px 8px" }}>
+            <span title="La mejor oportunidad de hoy espera al final de la ronda" style={{ fontSize: 10, fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace", color: GOLD_DEEP, border: `1px solid rgba(239,183,0,.18)`, borderRadius: 999, padding: "3px 8px" }}>
               💎 en la Nº{metaRonda}
             </span>
           )}
@@ -1077,7 +1077,7 @@ export default function GPProveedoresFeed() {
 
       {/* Insight del comprador */}
       {actual.insight && (
-        <div style={{ background: GOLD_BG, border: `1px solid rgba(233,180,76,.18)`, borderRadius: 14, padding: "11px 13px", marginBottom: 14 }}>
+        <div style={{ background: GOLD_BG, border: `1px solid rgba(239,183,0,.18)`, borderRadius: 14, padding: "11px 13px", marginBottom: 14 }}>
           <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: "0.1em", color: "#96825c", textTransform: "uppercase", marginBottom: 4, fontFamily: "'IBM Plex Mono', monospace" }}>✦ Dato del comprador</div>
           <div style={{ fontSize: 12.5, lineHeight: 1.55, color: "#d8c8a4", fontFamily: "'Manrope', sans-serif" }}>{actual.insight}</div>
         </div>
@@ -1098,7 +1098,7 @@ export default function GPProveedoresFeed() {
       {/* Acciones principales */}
       <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
         <button onClick={() => setPanel("ficha")}
-          style={{ flex: 2.2, padding: "15px 10px", borderRadius: 14, border: `1.5px solid ${GOLD}`, background: GOLD, color: SOBRE_GOLD, fontWeight: 800, fontSize: 15, cursor: "pointer", fontFamily: "'Manrope', sans-serif", boxShadow: "0 0 10px rgba(233,180,76,.5)" }}>
+          style={{ flex: 2.2, padding: "15px 10px", borderRadius: 14, border: `1.5px solid ${GOLD}`, background: GOLD, color: SOBRE_GOLD, fontWeight: 800, fontSize: 15, cursor: "pointer", fontFamily: "'Manrope', sans-serif", boxShadow: "0 0 10px rgba(239,183,0,.5)" }}>
           Ver ficha completa
         </button>
         <button onClick={() => pasar("up")}
@@ -1170,7 +1170,7 @@ export default function GPProveedoresFeed() {
 
   // ── Pantalla de entrada: pestaña Proveedores (diseño landing claro) ──
   if (entrada) {
-    const T = { fondo: "#fbfcfa", tinta: "#101c26", cuerpo: "#46545f", suave: "#6c7880", borde: "#e2e5e0", teal: "#0b6f7d", tealOsc: "#094e58", tealTinte: "#e8f2f2", ambarBg: "#f4ede1", ambarFg: "#8a5410" };
+    const T = { fondo: "#faf9f5", tinta: "#141311", cuerpo: "#46443f", suave: "#6e6b65", borde: "#e2e0d8", teal: "#a97f00", tealOsc: "#8a6800", tealTinte: "#faf1d4", ambarBg: "#f4ede1", ambarFg: "#8a5410" };
     const heroAlerts = [
       { tag: "ASEO", title: "Servicio de aseo y jardines 2026", meta: "SERVIU Metropolitano · $46.900.000", time: "9 días" },
       { tag: "ÁGIL", title: "Compra ágil: notebooks i5", meta: "DAEM Puente Alto · < 37 UTM", time: "Hoy" },
@@ -1457,8 +1457,13 @@ export default function GPProveedoresFeed() {
           button:focus-visible { outline: 2px solid ${GOLD}; outline-offset: 2px; }
         `}</style>
         <div style={{ width: "min(430px, 94vw)", background: CARD_GRAD, border: `1px solid ${BORDE}`, borderRadius: 26, padding: "36px 32px", boxShadow: SOMBRA_CARD }}>
-          <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 800, fontSize: 24, color: GOLD, letterSpacing: "-0.01em" }}>GP Proveedores</div>
-          <div style={{ fontSize: 12, color: MUTED, marginTop: 4, marginBottom: 6 }}>Mercado Público, a domicilio</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 13, marginBottom: 6 }}>
+            <img src="/logo-gestor-publico.png" alt="Gestor Público" style={{ width: 52, height: 52, borderRadius: 13, display: "block" }} />
+            <div>
+              <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 800, fontSize: 24, color: GOLD, letterSpacing: "-0.01em", lineHeight: 1.1 }}>GP Proveedores</div>
+              <div style={{ fontSize: 12, color: MUTED, marginTop: 3 }}>Mercado Público, a domicilio</div>
+            </div>
+          </div>
           <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: GOLD_DEEP, fontFamily: "'IBM Plex Mono', monospace", marginBottom: 18 }}>
             ⬖ Acceso privado · beta
           </div>
@@ -1476,7 +1481,7 @@ export default function GPProveedoresFeed() {
               style={{ width: "100%", padding: "13px 14px", borderRadius: 13, border: `1.5px solid ${BORDE}`, background: CARD2, color: PAPER, fontSize: 14, fontFamily: "'Manrope', sans-serif", outline: "none" }} />
           </div>
           <button onClick={entrarCuenta} disabled={cuentaOcupada}
-            style={{ ...btn({ fondo: GOLD, borde: GOLD, color: SOBRE_GOLD, peso: 800 }), width: "100%", padding: "14px 10px", fontSize: 15, opacity: cuentaOcupada ? 0.6 : 1, boxShadow: "0 0 12px rgba(233,180,76,.35)" }}>
+            style={{ ...btn({ fondo: GOLD, borde: GOLD, color: SOBRE_GOLD, peso: 800 }), width: "100%", padding: "14px 10px", fontSize: 15, opacity: cuentaOcupada ? 0.6 : 1, boxShadow: "0 0 12px rgba(239,183,0,.35)" }}>
             {cuentaOcupada ? "Un momento…" : "Entrar a mi reparto"}
           </button>
           <button onClick={() => (window.__gpSalir ? window.__gpSalir() : null)}
@@ -1484,7 +1489,7 @@ export default function GPProveedoresFeed() {
             ← Volver a la página
           </button>
           {toast && (
-            <div role="status" style={{ marginTop: 14, fontSize: 12.5, color: "#ffd479", background: GOLD_BG, border: `1px solid rgba(233,180,76,.25)`, borderRadius: 12, padding: "10px 12px", textAlign: "center" }}>
+            <div role="status" style={{ marginTop: 14, fontSize: 12.5, color: "#ffd479", background: GOLD_BG, border: `1px solid rgba(239,183,0,.25)`, borderRadius: 12, padding: "10px 12px", textAlign: "center" }}>
               {toast}
             </div>
           )}
@@ -1511,7 +1516,7 @@ export default function GPProveedoresFeed() {
         @keyframes orbitSpin { to { transform: rotate(360deg); } }
         @keyframes brasa { 0%, 100% { transform: scale(1); filter: brightness(1); } 50% { transform: scale(1.12); filter: brightness(1.25); } }
         @keyframes apagandose { 0%, 100% { opacity: .4; filter: grayscale(.5); } 50% { opacity: .85; filter: grayscale(.1); } }
-        @keyframes flashOro { 0% { transform: scale(1); text-shadow: none; } 35% { transform: scale(1.45); text-shadow: 0 0 18px rgba(233,180,76,.95); } 100% { transform: scale(1); text-shadow: none; } }
+        @keyframes flashOro { 0% { transform: scale(1); text-shadow: none; } 35% { transform: scale(1.45); text-shadow: 0 0 18px rgba(239,183,0,.95); } 100% { transform: scale(1); text-shadow: none; } }
         @keyframes confetiCae { 0% { transform: translateY(-8vh) rotate(0deg); opacity: 1; } 100% { transform: translateY(108vh) rotate(560deg); opacity: .85; } }
         @keyframes zoomEntra { 0% { transform: scale(.82); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
         @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
@@ -1521,8 +1526,11 @@ export default function GPProveedoresFeed() {
       {!movil && (
         <aside style={{ borderRight: `1px solid #1b1d26`, padding: "26px 16px 18px", display: "flex", flexDirection: "column", gap: 6, background: "#080a10", overflowY: "auto" }}>
           <div style={{ padding: "0 10px", marginBottom: 18 }}>
-            <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 800, fontSize: 20, letterSpacing: "-0.01em", color: GOLD }}>GP Proveedores</div>
-            <div style={{ fontSize: 11.5, color: MUTED, marginTop: 3 }}>Mercado Público, a domicilio</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <img src="/logo-gestor-publico.png" alt="Gestor Público" style={{ width: 34, height: 34, borderRadius: 9, display: "block" }} />
+              <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 800, fontSize: 18, letterSpacing: "-0.01em", color: GOLD }}>GP Proveedores</div>
+            </div>
+            <div style={{ fontSize: 11.5, color: MUTED, marginTop: 5 }}>Mercado Público, a domicilio</div>
             <div style={{ fontSize: 12.5, color: "#c9c6bf", marginTop: 12, lineHeight: 1.5, fontWeight: 700 }}>{saludo}</div>
           </div>
           {NAVS.map((n) => (
@@ -1578,7 +1586,10 @@ export default function GPProveedoresFeed() {
         {movil && (
           <div style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 9, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", background: "linear-gradient(180deg, rgba(8,10,16,.92), transparent)" }}>
             <div>
-              <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 800, fontSize: 15, color: GOLD }}>GP PROVEEDORES</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                <img src="/logo-gestor-publico.png" alt="Gestor Público" style={{ width: 22, height: 22, borderRadius: 6, display: "block" }} />
+                <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 800, fontSize: 15, color: GOLD }}>GP PROVEEDORES</div>
+              </div>
               <div style={{ display: "flex", gap: 8, marginTop: 5 }}>
                 {NAVS.map((n) => (
                   <button key={n.id} onClick={n.onClick} aria-label={n.label}
@@ -1648,7 +1659,7 @@ export default function GPProveedoresFeed() {
                   pointerEvents: "none",
                 }} />
               ))}
-              <div style={{ background: CARD_GRAD, border: `1px solid ${GOLD_DEEP}`, borderRadius: 24, padding: movil ? "34px 24px" : "40px 44px", maxWidth: 420, width: "calc(100% - 40px)", textAlign: "center", boxShadow: `${SOMBRA_CARD}, 0 0 60px rgba(233,180,76,.18)`, animation: "zoomEntra .45s cubic-bezier(.2,1.4,.4,1)", position: "relative", zIndex: 2 }}>
+              <div style={{ background: CARD_GRAD, border: `1px solid ${GOLD_DEEP}`, borderRadius: 24, padding: movil ? "34px 24px" : "40px 44px", maxWidth: 420, width: "calc(100% - 40px)", textAlign: "center", boxShadow: `${SOMBRA_CARD}, 0 0 60px rgba(239,183,0,.18)`, animation: "zoomEntra .45s cubic-bezier(.2,1.4,.4,1)", position: "relative", zIndex: 2 }}>
                 <div style={{ fontSize: 46, marginBottom: 6 }}>🎉</div>
                 <h2 style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 800, fontSize: 24, color: PAPER, margin: "0 0 6px" }}>¡Ronda de hoy completa!</h2>
                 <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: GOLD_BG, border: `1px solid ${GOLD_DEEP}`, borderRadius: 999, padding: "8px 16px", margin: "8px 0 18px" }}>
@@ -1832,7 +1843,7 @@ export default function GPProveedoresFeed() {
 
         {panel === "pymePublica" && pymeVista && (
           <Hoja titulo="Perfil de pyme" cerrar={() => { setPanel("red"); setPymeVista(null); }} movil={movil}>
-            <div style={{ display: "flex", gap: 14, alignItems: "center", background: GOLD_BG, border: `1px solid rgba(233,180,76,.18)`, borderRadius: 16, padding: "16px 18px", marginBottom: 14 }}>
+            <div style={{ display: "flex", gap: 14, alignItems: "center", background: GOLD_BG, border: `1px solid rgba(239,183,0,.18)`, borderRadius: 16, padding: "16px 18px", marginBottom: 14 }}>
               <div style={{ width: 52, height: 52, borderRadius: "50%", background: GOLD, color: SOBRE_GOLD, display: "grid", placeItems: "center", fontWeight: 800, fontSize: 17 }}>
                 {(pymeVista.nombre_pyme || "GP").trim().slice(0, 2).toUpperCase()}
               </div>
@@ -1873,7 +1884,7 @@ export default function GPProveedoresFeed() {
               </p>
             ) : sesion ? (
               <>
-                <div style={{ display: "flex", gap: 12, alignItems: "center", background: GOLD_BG, border: `1px solid rgba(233,180,76,.18)`, borderRadius: 16, padding: "14px 16px", marginBottom: 14 }}>
+                <div style={{ display: "flex", gap: 12, alignItems: "center", background: GOLD_BG, border: `1px solid rgba(239,183,0,.18)`, borderRadius: 16, padding: "14px 16px", marginBottom: 14 }}>
                   <div style={{ width: 44, height: 44, borderRadius: "50%", background: GOLD, color: SOBRE_GOLD, display: "grid", placeItems: "center", fontWeight: 800, fontSize: 15 }}>
                     {(nombrePyme.trim() || sesion.user.email || "GP").slice(0, 2).toUpperCase()}
                   </div>
