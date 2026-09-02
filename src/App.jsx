@@ -318,6 +318,8 @@ export default function GPProveedoresFeed() {
   const [redPymes, setRedPymes] = useState(null); // null = aún no cargada
   const [pymeVista, setPymeVista] = useState(null); // perfil público abierto
   const [actividad, setActividad] = useState(null); // pulso público de la red
+  const [ventas, setVentas] = useState(null); // OC reales por RUT (null=aún no, false=error)
+  const ventasRut = useRef(""); // RUT con el que se consultó, para refrescar si cambia
   const [seguidos, setSeguidos] = useState([]); // organismos que la pyme sigue
   const avisoSeguidos = useRef(false); // el aviso 🔔 se muestra una vez por sesión
   const accionesListas = useRef(false); // recién tras cargar la nube se permite sincronizar de vuelta
@@ -595,6 +597,20 @@ export default function GPProveedoresFeed() {
     supabase.from("actividad_publica").select("*").limit(15)
       .then(({ data, error }) => setActividad(error ? [] : data || []));
   }, [panel, redPymes]);
+
+  // ── Ventas reales: cruce del RUT con órdenes de compra oficiales ──
+  useEffect(() => {
+    if (panel !== "negocio") return;
+    const limpio = rut.trim().toUpperCase().replace(/\./g, "");
+    if (!/^\d{7,9}-[\dK]$/.test(limpio)) return;
+    if (ventasRut.current === limpio && ventas !== null) return;
+    ventasRut.current = limpio;
+    setVentas(null);
+    fetch(`/api/ventas?rut=${encodeURIComponent(limpio)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((d) => setVentas(d))
+      .catch(() => setVentas(false));
+  }, [panel, rut]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const haceCuanto = (iso) => {
     const min = Math.max(0, Math.round((Date.now() - new Date(iso)) / 60000));
@@ -2146,12 +2162,44 @@ export default function GPProveedoresFeed() {
                     <Kpi etiqueta="Postuladas" valor={postuladas.length} sub="marcadas por ti" />
                     <Kpi etiqueta="Adjudicadas" valor={postuladas.filter((x) => x.resultado === "adjudicada").length} dorado sub="de tus postulaciones" />
                   </div>
-                  <div style={{ fontSize: 10.5, color: GOLD, fontWeight: 700, marginBottom: 8, letterSpacing: "0.08em", fontFamily: "'IBM Plex Mono', monospace" }}>TU MES EN MERCADO PÚBLICO</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
-                    <Kpi etiqueta="Ofertadas" valor={mes.postuladas} />
-                    <Kpi etiqueta="Adjudicadas" valor={mes.adjudicadas} />
-                    <Kpi etiqueta="Conversión" valor={`${tasa}%`} dorado />
-                  </div>
+                  {ventas && ventas.total !== undefined ? (
+                    <>
+                      <div style={{ fontSize: 10.5, color: GOLD, fontWeight: 700, marginBottom: 8, letterSpacing: "0.08em", fontFamily: "'IBM Plex Mono', monospace" }}>
+                        ● TU HISTORIAL REAL EN MERCADO PÚBLICO
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
+                        <Kpi etiqueta="Órdenes de compra" valor={ventas.total} dorado sub="histórico total" />
+                        <Kpi etiqueta="Aceptadas" valor={(ventas.porEstado?.[6] || 0) + (ventas.porEstado?.[12] || 0)} sub="incluye recepción conforme" />
+                        <Kpi etiqueta="Canceladas" valor={ventas.porEstado?.[9] || 0} />
+                      </div>
+                      {(ventas.recientes || []).length > 0 && (
+                        <div style={{ background: CARD2, border: `1px solid ${BORDE}`, borderRadius: 13, padding: "12px 14px", marginBottom: 12 }}>
+                          <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.1em", color: MUTED, fontFamily: "'IBM Plex Mono', monospace", marginBottom: 8 }}>Últimas órdenes de compra</div>
+                          {ventas.recientes.slice(0, 8).map((oc) => (
+                            <div key={oc.Codigo} style={{ padding: "7px 0", borderBottom: "1px solid #1b1d26" }}>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: PAPER, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{oc.Nombre}</div>
+                              <div style={{ fontSize: 10.5, color: MUTED, marginTop: 2, fontFamily: "'IBM Plex Mono', monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {oc.Total ? <span style={{ color: VERDE_MONTO, fontWeight: 700 }}>${Number(oc.Total).toLocaleString("es-CL")}</span> : oc.Codigo}
+                                {oc.Comprador?.NombreOrganismo ? ` · ${oc.Comprador.NombreOrganismo}` : ""}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 10.5, color: GOLD, fontWeight: 700, marginBottom: 8, letterSpacing: "0.08em", fontFamily: "'IBM Plex Mono', monospace" }}>TU MES EN MERCADO PÚBLICO</div>
+                      {rut.trim() && ventas === null && /^\d{7,9}-[\dK]$/.test(rut.trim().toUpperCase().replace(/\./g, "")) && (
+                        <div style={{ fontSize: 11.5, color: MUTED, marginBottom: 10 }}>⏳ Cruzando tu RUT con las órdenes de compra oficiales…</div>
+                      )}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
+                        <Kpi etiqueta="Ofertadas" valor={mes.postuladas} />
+                        <Kpi etiqueta="Adjudicadas" valor={mes.adjudicadas} />
+                        <Kpi etiqueta="Conversión" valor={`${tasa}%`} dorado />
+                      </div>
+                    </>
+                  )}
                   <div style={{ background: CARD2, border: `1px solid ${BORDE}`, borderRadius: 13, padding: "12px 14px", marginBottom: 12 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
                       <span style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.1em", color: MUTED, fontFamily: "'IBM Plex Mono', monospace" }}>Ventas por mecanismo</span>
@@ -2170,9 +2218,13 @@ export default function GPProveedoresFeed() {
                     ))}
                   </div>
                   <p style={{ fontSize: 10.5, color: "#6d6d76", lineHeight: 1.5, margin: 0 }}>
-                    {rut.trim()
-                      ? `Los datos de "tu mes" son de ejemplo: con el RUT ${rut.trim()} el panel se calculará automáticamente desde tus órdenes de compra reales en Mercado Público.`
-                      : 'Los datos de "tu mes" son de ejemplo: en la versión con cuenta se calculan de tus postulaciones reales y del cruce automático con tus órdenes de compra en Mercado Público.'}
+                    {ventas && ventas.total !== undefined
+                      ? `Datos oficiales de Mercado Público para el RUT ${ventas.rut} (se actualizan cada 15 min).`
+                      : ventas === false
+                        ? "No pudimos cruzar tu RUT con Mercado Público en este momento: reintenta en unos minutos."
+                        : rut.trim()
+                          ? 'Guarda tu RUT en "Mi pyme" con formato 12345678-9 y este panel se llenará con tus órdenes de compra reales.'
+                          : 'Agrega el RUT de tu empresa en "Mi pyme" y este panel se llenará con tus órdenes de compra reales de Mercado Público.'}
                   </p>
                 </>
               );
