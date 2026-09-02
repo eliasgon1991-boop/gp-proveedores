@@ -214,10 +214,11 @@ const RUTAS_ICONO = {
   x: ["M6 6l12 12", "M18 6 6 18"],
   check: ["M4 12.5 9.5 18 20 6"],
   shield: ["M12 2 20 5.5V11c0 5.2-3.4 8.9-8 11-4.6-2.1-8-5.8-8-11V5.5z", "m8.5 11.5 2.5 2.5 4.5-5"],
+  red: ["M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2", "M23 21v-2a4 4 0 0 0-3-3.87", "M16 3.13a4 4 0 0 1 0 7.75"],
 };
 function Icono({ name, size = 20, fill = false, w = 2 }) {
   const rutas = RUTAS_ICONO[name] || [];
-  const circles = name === "clock" ? [[12, 12, 9]] : name === "cart" ? [[9.5, 20.5, 1.3], [17.5, 20.5, 1.3]] : [];
+  const circles = name === "clock" ? [[12, 12, 9]] : name === "cart" ? [[9.5, 20.5, 1.3], [17.5, 20.5, 1.3]] : name === "red" ? [[9, 7, 4]] : [];
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill={fill ? "currentColor" : "none"} stroke={fill ? "none" : "currentColor"} strokeWidth={fill ? 0 : w} strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", flexShrink: 0 }}>
       {rutas.map((d, i) => <path key={i} d={d} />)}
@@ -312,6 +313,8 @@ export default function GPProveedoresFeed() {
   const [cuentaClave, setCuentaClave] = useState("");
   const [cuentaOcupada, setCuentaOcupada] = useState(false);
   const [conteos, setConteos] = useState({}); // proceso_id → {likes, carro} reales de la red
+  const [redPymes, setRedPymes] = useState(null); // null = aún no cargada
+  const [pymeVista, setPymeVista] = useState(null); // perfil público abierto
   const accionesListas = useRef(false); // recién tras cargar la nube se permite sincronizar de vuelta
   const sincroTimer = useRef(null);
   const crudo = useRef(null);
@@ -533,6 +536,15 @@ export default function GPProveedoresFeed() {
       carro: real ? real.carro : (o.social?.carro ?? 0) + (miCarro ? 1 : 0),
     };
   };
+
+  // ── Red de pymes: perfiles públicos, ordenados por racha ──
+  useEffect(() => {
+    if (panel !== "red" || !supabase || redPymes !== null) return;
+    supabase.from("perfiles")
+      .select("id,nombre_pyme,palabras,region,racha_dias,racha_ultima,creado")
+      .order("racha_dias", { ascending: false }).limit(50)
+      .then(({ data, error }) => { if (!error) setRedPymes(data || []); });
+  }, [panel, redPymes]);
 
   // ── Scroll infinito ──
   useEffect(() => {
@@ -822,9 +834,10 @@ export default function GPProveedoresFeed() {
     { id: "carro", icono: "cart", label: "Mi carro", badge: String(guardadas.length), onClick: () => setPanel("carro") },
     { id: "pyme", icono: "user", label: "Mi pyme", badge: "", onClick: () => setPanel("perfil") },
     { id: "panel", icono: "chart", label: "Panel BI", badge: "", onClick: () => setPanel("negocio") },
+    { id: "red", icono: "red", label: "Red de pymes", badge: "", onClick: () => setPanel("red") },
     { id: "cuenta", icono: "shield", label: "Mi cuenta", badge: "", onClick: () => setPanel("cuenta") },
   ];
-  const navActiva = panel === "carro" ? "carro" : panel === "perfil" ? "pyme" : panel === "negocio" ? "panel" : panel === "cuenta" ? "cuenta" : filtro === "urgentes" ? "urgentes" : "reparto";
+  const navActiva = panel === "carro" ? "carro" : panel === "perfil" ? "pyme" : panel === "negocio" ? "panel" : panel === "cuenta" ? "cuenta" : panel === "red" || panel === "pymePublica" ? "red" : filtro === "urgentes" ? "urgentes" : "reparto";
 
   // ── Botón del rail circular ──
   const RailBtn = ({ icono, activo, sub, onClick, aria, pop, colorActivo = GOLD, anillo }) => (
@@ -1724,6 +1737,74 @@ export default function GPProveedoresFeed() {
               ))}
             </div>
             <button onClick={guardarPerfil} style={btn({ fondo: GOLD, borde: GOLD, color: SOBRE_GOLD, peso: 800 })}>Guardar y reordenar mi reparto</button>
+          </Hoja>
+        )}
+
+        {panel === "red" && (
+          <Hoja titulo="Red de pymes" cerrar={() => setPanel(null)} movil={movil}>
+            <p style={{ fontSize: 12.5, color: "#c9c6bf", lineHeight: 1.55, margin: "0 0 14px" }}>
+              Las pymes que ya compiten con GP Proveedores. Toca una para ver su perfil público.
+            </p>
+            {!supabase ? (
+              <p style={{ fontSize: 13, color: MUTED, margin: 0 }}>La red necesita conexión a cuentas (no disponible en este entorno).</p>
+            ) : redPymes === null ? (
+              <p style={{ fontSize: 13, color: MUTED, margin: 0 }}>Cargando la red…</p>
+            ) : redPymes.length === 0 ? (
+              <p style={{ fontSize: 13, color: MUTED, margin: 0 }}>Aún no hay pymes visibles en la red.</p>
+            ) : (
+              redPymes.map((p) => (
+                <button key={p.id} onClick={() => { setPymeVista(p); setPanel("pymePublica"); }}
+                  style={{ display: "flex", gap: 12, alignItems: "center", width: "100%", textAlign: "left", background: CARD2, border: `1px solid ${BORDE}`, borderRadius: 14, padding: "12px 14px", marginBottom: 8, cursor: "pointer" }}>
+                  <span style={{ width: 38, height: 38, borderRadius: "50%", background: p.id === sesion?.user?.id ? GOLD : "#242833", color: p.id === sesion?.user?.id ? SOBRE_GOLD : GOLD, display: "grid", placeItems: "center", fontWeight: 800, fontSize: 13, flexShrink: 0 }}>
+                    {(p.nombre_pyme || "GP").trim().slice(0, 2).toUpperCase()}
+                  </span>
+                  <span style={{ minWidth: 0, flex: 1 }}>
+                    <span style={{ display: "block", fontSize: 13.5, fontWeight: 800, color: PAPER, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {p.nombre_pyme || "Pyme sin nombre"} {p.id === sesion?.user?.id && <span style={{ color: GOLD, fontSize: 10.5 }}>(tú)</span>}
+                    </span>
+                    <span style={{ display: "block", fontSize: 11.5, color: MUTED, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {(p.palabras || []).slice(0, 3).join(" · ") || "Sin rubros aún"}
+                    </span>
+                  </span>
+                  {p.racha_dias > 0 && (
+                    <span style={{ fontSize: 11.5, fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace", color: "#ffd479", flexShrink: 0 }}>🔥 {p.racha_dias}</span>
+                  )}
+                </button>
+              ))
+            )}
+          </Hoja>
+        )}
+
+        {panel === "pymePublica" && pymeVista && (
+          <Hoja titulo="Perfil de pyme" cerrar={() => { setPanel("red"); setPymeVista(null); }} movil={movil}>
+            <div style={{ display: "flex", gap: 14, alignItems: "center", background: GOLD_BG, border: `1px solid rgba(233,180,76,.18)`, borderRadius: 16, padding: "16px 18px", marginBottom: 14 }}>
+              <div style={{ width: 52, height: 52, borderRadius: "50%", background: GOLD, color: SOBRE_GOLD, display: "grid", placeItems: "center", fontWeight: 800, fontSize: 17 }}>
+                {(pymeVista.nombre_pyme || "GP").trim().slice(0, 2).toUpperCase()}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: PAPER }}>{pymeVista.nombre_pyme || "Pyme sin nombre"}</div>
+                <div style={{ fontSize: 11.5, color: MUTED, marginTop: 3 }}>
+                  {pymeVista.region ? `${pymeVista.region} · ` : ""}en la red desde {new Date(pymeVista.creado).toLocaleDateString("es-CL", { month: "long", year: "numeric" })}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+              <div style={{ flex: 1, background: CARD2, border: `1px solid ${BORDE}`, borderRadius: 14, padding: "12px 14px", textAlign: "center" }}>
+                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 20, color: "#ffd479" }}>🔥 {pymeVista.racha_dias}</div>
+                <div style={{ fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase", color: MUTED, fontFamily: "'IBM Plex Mono', monospace", marginTop: 4 }}>días de racha</div>
+              </div>
+              <div style={{ flex: 1, background: CARD2, border: `1px solid ${BORDE}`, borderRadius: 14, padding: "12px 14px", textAlign: "center" }}>
+                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 20, color: VERDE }}>{(pymeVista.palabras || []).length}</div>
+                <div style={{ fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase", color: MUTED, fontFamily: "'IBM Plex Mono', monospace", marginTop: 4 }}>rubros declarados</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: MUTED, marginBottom: 8 }}>Qué vende:</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {(pymeVista.palabras || []).length === 0 && <span style={{ fontSize: 12.5, color: MUTED }}>Esta pyme aún no declara rubros.</span>}
+              {(pymeVista.palabras || []).map((p) => (
+                <span key={p} style={{ fontSize: 12.5, fontWeight: 700, padding: "7px 12px", borderRadius: 999, background: GOLD_BG, border: `1.5px solid ${GOLD}`, color: GOLD }}>{p}</span>
+              ))}
+            </div>
           </Hoja>
         )}
 
