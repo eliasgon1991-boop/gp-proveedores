@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { supabase } from "./supabase";
 
 // ═══ GP Proveedores · "Mercado Público, a domicilio" ═══
 // Diseño v2: sidebar en escritorio, rail de acciones circular estilo TikTok,
@@ -212,6 +213,7 @@ const RUTAS_ICONO = {
   chevDown: ["m6 10 6 6 6-6"],
   x: ["M6 6l12 12", "M18 6 6 18"],
   check: ["M4 12.5 9.5 18 20 6"],
+  shield: ["M12 2 20 5.5V11c0 5.2-3.4 8.9-8 11-4.6-2.1-8-5.8-8-11V5.5z", "m8.5 11.5 2.5 2.5 4.5-5"],
 };
 function Icono({ name, size = 20, fill = false, w = 2 }) {
   const rutas = RUTAS_ICONO[name] || [];
@@ -304,6 +306,14 @@ export default function GPProveedoresFeed() {
   const [rachaHoy, setRachaHoy] = useState(false);
   const [rachaRota, setRachaRota] = useState(0);
   const [celebrar, setCelebrar] = useState(false);
+  const [sesion, setSesion] = useState(null);
+  const [nombrePyme, setNombrePyme] = useState("");
+  const [cuentaEmail, setCuentaEmail] = useState("");
+  const [cuentaClave, setCuentaClave] = useState("");
+  const [cuentaOcupada, setCuentaOcupada] = useState(false);
+  const [conteos, setConteos] = useState({}); // proceso_id → {likes, carro} reales de la red
+  const accionesListas = useRef(false); // recién tras cargar la nube se permite sincronizar de vuelta
+  const sincroTimer = useRef(null);
   const crudo = useRef(null);
   const drag = useRef({ activo: false, y0: 0 });
   const toastTimer = useRef(null);
@@ -339,8 +349,121 @@ export default function GPProveedoresFeed() {
     setRachaRota(0);
     setCelebrar(true);
     try { localStorage.setItem("gp_racha_v1", JSON.stringify({ racha: nueva, ultima: hoyChile() })); } catch {}
+    if (supabase && sesion) {
+      supabase.from("perfiles").upsert({ id: sesion.user.id, racha_dias: nueva, racha_ultima: hoyChile() }).then(() => {});
+    }
     registrarAccion("ronda-diaria", "completa");
-  }, [indice, rachaHoy, filtro, metaRonda, rachaDias]);
+  }, [indice, rachaHoy, filtro, metaRonda, rachaDias, sesion]);
+
+  // ── Cuenta (Supabase): sesión viva y perfil en la nube ──
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => setSesion(data.session ?? null));
+    const { data: sub } = supabase.auth.onAuthStateChange((_ev, s) => setSesion(s ?? null));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // Al entrar con una cuenta: el perfil de la nube manda; si no existe, se crea con lo local.
+  useEffect(() => {
+    if (!supabase || !sesion) return;
+    let cancelado = false;
+    (async () => {
+      const { data, error } = await supabase.from("perfiles").select("*").eq("id", sesion.user.id).maybeSingle();
+      if (cancelado || error) return;
+      if (!data) {
+        await supabase.from("perfiles").insert({
+          id: sesion.user.id, nombre_pyme: nombrePyme || null, rut: rut || null,
+          palabras: perfil, racha_dias: rachaDias, racha_ultima: rachaHoy ? hoyChile() : null,
+        });
+        return;
+      }
+      if (Array.isArray(data.palabras) && data.palabras.length) setPerfil(data.palabras);
+      if (data.rut) setRut(data.rut);
+      if (data.nombre_pyme) setNombrePyme(data.nombre_pyme);
+      if ((data.racha_dias || 0) > 0 && (data.racha_ultima === hoyChile() || esAyer(data.racha_ultima))) {
+        setRachaDias((d) => Math.max(d, data.racha_dias));
+        if (data.racha_ultima === hoyChile()) setRachaHoy(true);
+      }
+    })();
+    return () => { cancelado = true; };
+    // Solo al cambiar la sesión: lo local del momento sirve de semilla si el perfil no existe.
+  }, [sesion]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Al entrar: bajar likes/carro/postuladas de la nube y fusionar con lo local.
+  useEffect(() => {
+    if (!supabase || !sesion) { accionesListas.current = false; return; }
+    let cancelado = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("acciones_pyme").select("proceso_id,tipo,datos").eq("user_id", sesion.user.id);
+      if (cancelado) return;
+      if (error) { accionesListas.current = true; return; } // sin tabla o sin red: sigue local
+      const likes = data.filter((a) => a.tipo === "like").map((a) => a.proceso_id);
+      const carro = data.filter((a) => a.tipo === "carro").map((a) => a.datos).filter(Boolean);
+      const postu = data.filter((a) => a.tipo === "postulada").map((a) => a.datos).filter(Boolean);
+      setGustadas((g) => [...new Set([...g, ...likes])]);
+      setGuardadas((g) => { const ids = new Set(g.map((x) => x.id)); return [...g, ...carro.filter((c) => !ids.has(c.id))]; });
+      setPostuladas((p) => { const ids = new Set(p.map((x) => x.id)); return [...p, ...postu.filter((c) => !ids.has(c.id))]; });
+      accionesListas.current = true;
+    })();
+    return () => { cancelado = true; };
+  }, [sesion]);
+
+  // Cada cambio local (con sesión) se sube completo, con debounce: es la
+  // forma simple de cubrir los 6 puntos que mutan carro/likes/postuladas.
+  useEffect(() => {
+    if (!supabase || !sesion || !accionesListas.current) return;
+    clearTimeout(sincroTimer.current);
+    sincroTimer.current = setTimeout(async () => {
+      const uid = sesion.user.id;
+      const filas = [
+        ...gustadas.map((id) => ({ user_id: uid, proceso_id: id, tipo: "like" })),
+        ...guardadas.map((g) => ({ user_id: uid, proceso_id: g.id, tipo: "carro", datos: g })),
+        ...postuladas.map((g) => ({ user_id: uid, proceso_id: g.id, tipo: "postulada", datos: g })),
+      ];
+      const { error } = await supabase.from("acciones_pyme").delete().eq("user_id", uid);
+      if (!error && filas.length) await supabase.from("acciones_pyme").insert(filas);
+    }, 900);
+    return () => clearTimeout(sincroTimer.current);
+  }, [gustadas, guardadas, postuladas, sesion]);
+
+  const guardarPerfilNube = (extra = {}) => {
+    if (!supabase || !sesion) return;
+    supabase.from("perfiles").upsert({
+      id: sesion.user.id, nombre_pyme: nombrePyme.trim() || null, rut: rut.trim() || null,
+      palabras: perfil, ...extra,
+    }).then(({ error }) => { if (error) avisar("No se pudo sincronizar tu perfil en la nube"); });
+  };
+
+  // Acceso cerrado: las cuentas las crea el administrador en Supabase y
+  // entrega correo + clave. Aquí solo se inicia sesión, nunca se registra.
+  const entrarCuenta = async () => {
+    if (!supabase) return;
+    const email = cuentaEmail.trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(email)) { avisar("Escribe un correo válido"); return; }
+    if (cuentaClave.length < 6) { avisar("La clave necesita al menos 6 caracteres"); return; }
+    setCuentaOcupada(true);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password: cuentaClave });
+      if (error) {
+        avisar(error.message.includes("Invalid login")
+          ? "Correo o clave incorrectos"
+          : error.message.includes("not confirmed")
+            ? "Tu cuenta aún no está habilitada: avísanos para activarla"
+            : "No se pudo entrar: " + error.message);
+        return;
+      }
+      avisar("¡Bienvenido! Cargando tu reparto…");
+      setCuentaClave("");
+      setPanel(null);
+    } finally { setCuentaOcupada(false); }
+  };
+
+  const salirCuenta = async () => {
+    if (!supabase) return;
+    await supabase.auth.signOut();
+    avisar("Sesión cerrada: sigues navegando como invitado");
+  };
 
   useEffect(() => {
     const onResize = () => setMovil(window.innerWidth < 820);
@@ -386,6 +509,30 @@ export default function GPProveedoresFeed() {
     })();
     return () => { cancelado = true; };
   }, []);
+
+  // ── Contadores sociales reales: agregados de la red por proceso ──
+  const idsConteo = useMemo(() => feed.slice(0, 40).map((c) => c.id).join(","), [feed]);
+  useEffect(() => {
+    if (!supabase || !idsConteo) return;
+    let cancelado = false;
+    supabase.from("conteos_publicos").select("proceso_id,tipo,total").in("proceso_id", idsConteo.split(","))
+      .then(({ data, error }) => {
+        if (cancelado || error || !data) return;
+        const m = {};
+        data.forEach((r) => { (m[r.proceso_id] ??= { likes: 0, carro: 0 })[r.tipo === "like" ? "likes" : "carro"] = r.total; });
+        setConteos(m);
+      });
+    return () => { cancelado = true; };
+  }, [idsConteo]);
+  // Con datos reales manda la red (mi acción ya viene contada tras el sync);
+  // sin ellos, semilla demo de la tarjeta + mi acción local de forma optimista.
+  const conteoDe = (o, miGusto, miCarro) => {
+    const real = conteos[o.id];
+    return {
+      likes: real ? real.likes : (o.social?.likes ?? 0) + (miGusto ? 1 : 0),
+      carro: real ? real.carro : (o.social?.carro ?? 0) + (miCarro ? 1 : 0),
+    };
+  };
 
   // ── Scroll infinito ──
   useEffect(() => {
@@ -626,6 +773,7 @@ export default function GPProveedoresFeed() {
     setFiltro("todas");
     setIndice(0);
     setPanel(null);
+    guardarPerfilNube();
     avisar(rut.trim()
       ? "Perfil guardado. Con tu RUT activaremos tus ventas reales en el panel"
       : "Perfil guardado: tu reparto se reordenó según tu rubro");
@@ -674,8 +822,9 @@ export default function GPProveedoresFeed() {
     { id: "carro", icono: "cart", label: "Mi carro", badge: String(guardadas.length), onClick: () => setPanel("carro") },
     { id: "pyme", icono: "user", label: "Mi pyme", badge: "", onClick: () => setPanel("perfil") },
     { id: "panel", icono: "chart", label: "Panel BI", badge: "", onClick: () => setPanel("negocio") },
+    { id: "cuenta", icono: "shield", label: "Mi cuenta", badge: "", onClick: () => setPanel("cuenta") },
   ];
-  const navActiva = panel === "carro" ? "carro" : panel === "perfil" ? "pyme" : panel === "negocio" ? "panel" : filtro === "urgentes" ? "urgentes" : "reparto";
+  const navActiva = panel === "carro" ? "carro" : panel === "perfil" ? "pyme" : panel === "negocio" ? "panel" : panel === "cuenta" ? "cuenta" : filtro === "urgentes" ? "urgentes" : "reparto";
 
   // ── Botón del rail circular ──
   const RailBtn = ({ icono, activo, sub, onClick, aria, pop, colorActivo = GOLD, anillo }) => (
@@ -881,9 +1030,9 @@ export default function GPProveedoresFeed() {
         {actual.tags.map((t) => (
           <span key={t} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 999, background: CARD2, border: `1px solid ${BORDE}`, color: "#c9c6bf", fontFamily: "'Manrope', sans-serif" }}>{t}</span>
         ))}
-        {actual.social && (
+        {(actual.social || conteos[actual.id]) && (
           <span style={{ fontSize: 11, color: MUTED, marginLeft: "auto", fontFamily: "'IBM Plex Mono', monospace" }}>
-            ♥ {actual.social.likes + (gustada ? 1 : 0)} · 🛒 {actual.social.carro + (enCarro ? 1 : 0)} pymes
+            ♥ {conteoDe(actual, gustada, enCarro).likes} · 🛒 {conteoDe(actual, gustada, enCarro).carro} pymes
           </span>
         )}
       </div>
@@ -923,10 +1072,10 @@ export default function GPProveedoresFeed() {
       ? { position: "absolute", left: 0, right: 0, bottom: 12, zIndex: 8, display: "flex", flexDirection: "row", gap: 20, alignItems: "flex-start", justifyContent: "center" }
       : { display: "flex", flexDirection: "column", gap: 16, alignItems: "center", zIndex: 3 }}>
       <RailBtn icono="heart" activo={gustada} pop={latiendo}
-        sub={String((actual.social ? actual.social.likes + (gustada ? 1 : 0) : gustadas.length))}
+        sub={String((actual.social || conteos[actual.id] ? conteoDe(actual, gustada, enCarro).likes : gustadas.length))}
         onClick={toggleGusta} aria={gustada ? "Quitar me gusta" : "Me gusta"} />
       <RailBtn icono="cart" activo={enCarro} pop={carroPop} anillo
-        sub={String((actual.social ? actual.social.carro + (enCarro ? 1 : 0) : guardadas.length))}
+        sub={String((actual.social || conteos[actual.id] ? conteoDe(actual, gustada, enCarro).carro : guardadas.length))}
         onClick={toggleCarro} aria={enCarro ? "Quitar del carro" : "Agregar al carro"} />
       <RailBtn icono="send" activo={false} sub="Enviar" onClick={() => setPanel("compartir")} aria="Compartir" />
       <RailBtn icono="flag" activo={!!yaMarcada} colorActivo={ROJO} sub="No calza" onClick={() => setPanel("reporte")} aria="Marcar: algo no calza" />
@@ -1239,6 +1388,53 @@ export default function GPProveedoresFeed() {
     );
   }
 
+  // ── Puerta de acceso: la app es privada, con cuentas asignadas por GP ──
+  if (supabase && !sesion) {
+    return (
+      <div style={{ fontFamily: "'Manrope', system-ui, sans-serif", background: INK, height: "100vh", display: "grid", placeItems: "center", color: PAPER, padding: 20 }}>
+        <style>{`
+          @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap');
+          * { box-sizing: border-box; }
+          input::placeholder { color: #6d6d76; }
+          button:focus-visible { outline: 2px solid ${GOLD}; outline-offset: 2px; }
+        `}</style>
+        <div style={{ width: "min(430px, 94vw)", background: CARD_GRAD, border: `1px solid ${BORDE}`, borderRadius: 26, padding: "36px 32px", boxShadow: SOMBRA_CARD }}>
+          <div style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 800, fontSize: 24, color: GOLD, letterSpacing: "-0.01em" }}>GP Proveedores</div>
+          <div style={{ fontSize: 12, color: MUTED, marginTop: 4, marginBottom: 6 }}>Mercado Público, a domicilio</div>
+          <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: GOLD_DEEP, fontFamily: "'IBM Plex Mono', monospace", marginBottom: 18 }}>
+            ⬖ Acceso privado · beta
+          </div>
+          <p style={{ fontSize: 13, color: "#c9c6bf", lineHeight: 1.6, margin: "0 0 18px" }}>
+            Entra con la cuenta y clave que te asignamos. ¿Aún no tienes acceso?
+            Pídelo desde la página y te contactamos.
+          </p>
+          <div style={{ marginBottom: 10 }}>
+            <input value={cuentaEmail} onChange={(e) => setCuentaEmail(e.target.value)} type="email" placeholder="correo@tupyme.cl" aria-label="Correo" autoComplete="username"
+              style={{ width: "100%", padding: "13px 14px", borderRadius: 13, border: `1.5px solid ${BORDE}`, background: CARD2, color: PAPER, fontSize: 14, fontFamily: "'Manrope', sans-serif", outline: "none" }} />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <input value={cuentaClave} onChange={(e) => setCuentaClave(e.target.value)} type="password" placeholder="Clave asignada" aria-label="Clave" autoComplete="current-password"
+              onKeyDown={(e) => { if (e.key === "Enter") entrarCuenta(); }}
+              style={{ width: "100%", padding: "13px 14px", borderRadius: 13, border: `1.5px solid ${BORDE}`, background: CARD2, color: PAPER, fontSize: 14, fontFamily: "'Manrope', sans-serif", outline: "none" }} />
+          </div>
+          <button onClick={entrarCuenta} disabled={cuentaOcupada}
+            style={{ ...btn({ fondo: GOLD, borde: GOLD, color: SOBRE_GOLD, peso: 800 }), width: "100%", padding: "14px 10px", fontSize: 15, opacity: cuentaOcupada ? 0.6 : 1, boxShadow: "0 0 12px rgba(233,180,76,.35)" }}>
+            {cuentaOcupada ? "Un momento…" : "Entrar a mi reparto"}
+          </button>
+          <button onClick={() => (window.__gpSalir ? window.__gpSalir() : null)}
+            style={{ ...btn({ fondo: "transparent", borde: "transparent", color: MUTED }), width: "100%", marginTop: 10, fontSize: 12.5 }}>
+            ← Volver a la página
+          </button>
+          {toast && (
+            <div role="status" style={{ marginTop: 14, fontSize: 12.5, color: "#ffd479", background: GOLD_BG, border: `1px solid rgba(233,180,76,.25)`, borderRadius: 12, padding: "10px 12px", textAlign: "center" }}>
+              {toast}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{
       fontFamily: "'Manrope', system-ui, sans-serif",
@@ -1297,13 +1493,20 @@ export default function GPProveedoresFeed() {
                 ← SALIR
               </button>
             </div>
-            <div style={{ display: "flex", gap: 10, alignItems: "center", paddingTop: 12, borderTop: "1px solid #1b1d26" }}>
-              <div style={{ width: 36, height: 36, borderRadius: "50%", background: "#242833", color: GOLD, display: "grid", placeItems: "center", fontWeight: 800, fontSize: 12.5 }}>AR</div>
-              <div>
-                <div style={{ fontSize: 13.5, fontWeight: 800, color: PAPER }}>Servicios Rojas SpA</div>
-                <div style={{ fontSize: 11.5, color: MUTED, marginTop: 1 }}>Aseo y mantención · RM</div>
+            <button onClick={() => setPanel("cuenta")} aria-label={sesion ? "Mi cuenta" : "Crear cuenta o entrar"}
+              style={{ display: "flex", gap: 10, alignItems: "center", paddingTop: 12, borderTop: "1px solid #1b1d26", background: "transparent", border: "none", borderRadius: 0, cursor: "pointer", textAlign: "left", width: "100%" }}>
+              <div style={{ width: 36, height: 36, borderRadius: "50%", background: sesion ? GOLD : "#242833", color: sesion ? SOBRE_GOLD : GOLD, display: "grid", placeItems: "center", fontWeight: 800, fontSize: 12.5, flexShrink: 0 }}>
+                {sesion ? (nombrePyme.trim() || sesion.user.email || "GP").slice(0, 2).toUpperCase() : "?"}
               </div>
-            </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 800, color: PAPER, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {sesion ? (nombrePyme.trim() || "Tu pyme") : "Modo demo"}
+                </div>
+                <div style={{ fontSize: 11.5, color: sesion ? MUTED : GOLD, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {sesion ? perfil.slice(0, 2).join(" · ") || sesion.user.email : "Sin conexión a cuentas"}
+                </div>
+              </div>
+            </button>
           </div>
         </aside>
       )}
@@ -1521,6 +1724,50 @@ export default function GPProveedoresFeed() {
               ))}
             </div>
             <button onClick={guardarPerfil} style={btn({ fondo: GOLD, borde: GOLD, color: SOBRE_GOLD, peso: 800 })}>Guardar y reordenar mi reparto</button>
+          </Hoja>
+        )}
+
+        {panel === "cuenta" && (
+          <Hoja titulo={sesion ? "Mi cuenta" : "Acceso"} cerrar={() => setPanel(null)} movil={movil}>
+            {!supabase ? (
+              <p style={{ fontSize: 13, color: MUTED, lineHeight: 1.6, margin: 0 }}>
+                Las cuentas en la nube aún no están activadas en este entorno (faltan las
+                variables <code style={{ color: GOLD }}>VITE_SUPABASE_URL</code> y <code style={{ color: GOLD }}>VITE_SUPABASE_ANON_KEY</code>).
+                Mientras tanto todo funciona en modo invitado: tu perfil y tu racha viven solo en este navegador.
+              </p>
+            ) : sesion ? (
+              <>
+                <div style={{ display: "flex", gap: 12, alignItems: "center", background: GOLD_BG, border: `1px solid rgba(233,180,76,.18)`, borderRadius: 16, padding: "14px 16px", marginBottom: 14 }}>
+                  <div style={{ width: 44, height: 44, borderRadius: "50%", background: GOLD, color: SOBRE_GOLD, display: "grid", placeItems: "center", fontWeight: 800, fontSize: 15 }}>
+                    {(nombrePyme.trim() || sesion.user.email || "GP").slice(0, 2).toUpperCase()}
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 14.5, fontWeight: 800, color: PAPER, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nombrePyme.trim() || "Tu pyme sin nombre aún"}</div>
+                    <div style={{ fontSize: 11.5, color: MUTED, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sesion.user.email}</div>
+                  </div>
+                </div>
+                <p style={{ fontSize: 12.5, color: "#c9c6bf", lineHeight: 1.55, margin: "0 0 12px" }}>
+                  Tu perfil (rubros, RUT y racha) se guarda en la nube: entra desde cualquier
+                  dispositivo y tu reparto te sigue. El nombre y los rubros son visibles para
+                  otras pymes de la red.
+                </p>
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, color: MUTED, marginBottom: 6 }}>Nombre público de tu pyme</div>
+                  <input value={nombrePyme} onChange={(e) => setNombrePyme(e.target.value)} placeholder="Ej: Servicios Rojas SpA" aria-label="Nombre público de tu pyme"
+                    style={{ width: "100%", padding: "11px 13px", borderRadius: 12, border: `1.5px solid ${BORDE}`, background: CARD2, color: PAPER, fontSize: 13.5, fontFamily: "'Manrope', sans-serif", outline: "none" }} />
+                </div>
+                <button onClick={() => { guardarPerfilNube(); avisar("Cuenta actualizada ✓"); }} style={{ ...btn({ fondo: GOLD, borde: GOLD, color: SOBRE_GOLD, peso: 800 }), width: "100%", marginBottom: 10 }}>
+                  Guardar cambios
+                </button>
+                <button onClick={salirCuenta} style={{ ...btn({ fondo: "transparent", borde: BORDE, color: MUTED }), width: "100%" }}>
+                  Cerrar sesión
+                </button>
+              </>
+            ) : (
+              <p style={{ fontSize: 13, color: MUTED, lineHeight: 1.6, margin: 0 }}>
+                El acceso es con cuenta asignada: entra desde la pantalla de acceso.
+              </p>
+            )}
           </Hoja>
         )}
 

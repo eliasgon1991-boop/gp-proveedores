@@ -57,9 +57,22 @@ los datos demo (chip ◌ DEMO). Es el comportamiento esperado de la cadena de ca
 - El backend necesita la variable de entorno `MP_TICKET` (ticket de api.mercadopublico.cl).
   **El ticket NUNCA va en el frontend.**
 
+## Cuentas y perfil en la nube (Supabase) — agregado 02-09-2026
+
+- `src/supabase.js` crea el cliente solo si existen `VITE_SUPABASE_URL` y
+  `VITE_SUPABASE_ANON_KEY`; sin ellas la app corre en **modo invitado** (igual que antes).
+- `supabase/esquema.sql` crea la tabla `perfiles` (nombre_pyme, rut, palabras,
+  racha) con RLS: lectura pública, escritura solo del dueño. Ejecutarlo una vez
+  en el SQL Editor del proyecto de Supabase.
+- En la app: nav "Crear cuenta / Mi cuenta" (escritorio y móvil), alta por
+  correo + clave, y el perfil/racha se sincronizan al guardar y al completar la ronda.
+- Rumbo elegido: la app evoluciona hacia una **red social de oportunidades de
+  Mercado Público** (perfiles públicos de pymes → interacciones → seguir organismos).
+
 ## Pendientes priorizados (decididos en la conversación de Claude)
 
-1. Cuentas de usuario (Supabase Auth) — hoy el estado vive solo en memoria del navegador.
+1. ~~Cuentas de usuario (Supabase Auth)~~ ✔ hecho (falta crear el proyecto Supabase y setear las 2 variables).
+   Siguiente: persistir carro/likes por usuario y perfil público visitable.
 2. Persistir perfil/carro/racha en el backend por usuario.
 3. RUT → cruce automático con órdenes de compra (API oficial) para el Panel BI real.
 4. Reparto diario por WhatsApp/correo (n8n como motor de envíos).

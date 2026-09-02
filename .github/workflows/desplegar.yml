@@ -25,6 +25,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+        env:
+          # Clave publicable (no secreta): la protección real es RLS en Supabase.
+          VITE_SUPABASE_URL: https://kmotfygtwxlbmyqdqjfu.supabase.co
+          VITE_SUPABASE_ANON_KEY: sb_publishable_P_x5gTjCf4g63CmGOhSFAw_XbaoAuhx
       - run: echo proveedores.gestorpublico.cl > dist/CNAME
       - uses: actions/upload-pages-artifact@v3
         with:
