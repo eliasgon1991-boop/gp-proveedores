@@ -181,10 +181,32 @@ function diasParaCierre(fechaCierre) {
   if (dias === 1) return { texto: "Cierra mañana", urgente: true };
   return { texto: `En ${dias} días`, urgente: false };
 }
-function transformarLicitaciones(listado, palabras) {
+// ── Calce por rubro OFICIAL: códigos ONU de los ítems vs rubros elegidos ──
+// Subcategoría exacta (8 dígitos) > misma familia (6) > mismo segmento (2).
+function puntuarOnu(items, rubros) {
+  if (!items || !rubros || rubros.length === 0) return 0;
+  const exactos = new Set(rubros.map((r) => String(r.codigo)));
+  const familias = new Set(rubros.map((r) => String(r.codigo).slice(0, 6)));
+  const segmentos = new Set(rubros.map((r) => String(r.codigo).slice(0, 2)));
+  let mejor = 0;
+  for (const it of items) {
+    const c = String(it.CodigoCategoria || "");
+    if (!c) continue;
+    if (exactos.has(c)) mejor = Math.max(mejor, 96);
+    else if (familias.has(c.slice(0, 6))) mejor = Math.max(mejor, 88);
+    else if (segmentos.has(c.slice(0, 2))) mejor = Math.max(mejor, 72);
+  }
+  return mejor;
+}
+
+function transformarLicitaciones(listado, palabras, rubrosMp = []) {
   const tarjetas = (listado || []).map((l) => {
-    const match = puntuarCalce(l.Nombre, palabras);
+    const matchTexto = puntuarCalce(l.Nombre, palabras);
+    const matchOnu = puntuarOnu(l.Items?.Listado, rubrosMp);
+    const match = Math.max(matchTexto, matchOnu);
+    const oficial = matchOnu >= 88;
     return {
+      oficial,
       id: l.CodigoExterno,
       titulo: l.Nombre,
       organismo: l.Comprador?.NombreOrganismo || "Organismo por confirmar",
@@ -193,7 +215,9 @@ function transformarLicitaciones(listado, palabras) {
       cierre: diasParaCierre(l.FechaCierre).texto,
       match,
       region: l.Comprador?.RegionUnidad?.replace("Región ", "") || "Por confirmar",
-      razon: match >= 70 ? "Coincide con lo que vende tu pyme" : "Proceso del día en Mercado Público",
+      razon: oficial
+        ? "Sus ítems calzan con tu rubro oficial de Mercado Público"
+        : match >= 70 ? "Coincide con lo que vende tu pyme" : "Proceso del día en Mercado Público",
       tags: [l.CodigoEstado === 5 ? "Publicada" : "Activa", "Dato en vivo"],
       similar: match < 70,
     };
@@ -334,6 +358,15 @@ export default function GPProveedoresFeed() {
   const [ventas, setVentas] = useState(null); // OC reales por RUT (null=aún no, false=error)
   const [rubrosMp, setRubrosMp] = useState([]); // selección del catálogo oficial MP
   const [buscaRubro, setBuscaRubro] = useState("");
+  const rubrosMpRef = useRef([]); // los efectos de carga leen la selección vigente
+  useEffect(() => { rubrosMpRef.current = rubrosMp; }, [rubrosMp]);
+
+  // Con rubros oficiales recién cargados/cambiados, el reparto vivo se reordena.
+  useEffect(() => {
+    if (!crudo.current || rubrosMp.length === 0) return;
+    setFeed(ordenarRonda(transformarLicitaciones(crudo.current, perfil, rubrosMp)));
+    // El índice no se resetea para no interrumpir la ronda en curso.
+  }, [rubrosMp]); // eslint-disable-line react-hooks/exhaustive-deps
   const ventasRut = useRef(""); // RUT con el que se consultó, para refrescar si cambia
   const [seguidos, setSeguidos] = useState([]); // organismos que la pyme sigue
   const avisoSeguidos = useRef(false); // el aviso 🔔 se muestra una vez por sesión
@@ -560,7 +593,7 @@ export default function GPProveedoresFeed() {
           if (!r.ok) throw new Error("HTTP " + r.status);
           const datos = await r.json();
           const listado = datos.Listado || datos.listado || datos;
-          const tarjetas = transformarLicitaciones(listado, perfil);
+          const tarjetas = transformarLicitaciones(listado, perfil, rubrosMpRef.current);
           if (!cancelado && tarjetas.length > 0) {
             crudo.current = listado;
             setFeed(ordenarRonda(tarjetas));
@@ -888,7 +921,7 @@ export default function GPProveedoresFeed() {
   const guardarPerfil = () => {
     if (perfil.length === 0) { avisar("Agrega al menos una palabra de tu rubro"); return; }
     if (crudo.current) {
-      setFeed(transformarLicitaciones(crudo.current, perfil));
+      setFeed(transformarLicitaciones(crudo.current, perfil, rubrosMp));
     } else {
       const base = [...SEMILLA, ...generarDemoPorRubro(perfil)];
       const reordenadas = base.map((c) => {
@@ -1113,6 +1146,9 @@ export default function GPProveedoresFeed() {
         {yaMarcada && <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 999, fontFamily: "'IBM Plex Mono', monospace", background: "#3a1210", color: ROJO, border: `1px solid ${ROJO}66` }}>⚑ MARCADA</span>}
         {seguidos.includes(actual.organismo) && (
           <span style={{ fontSize: 10, fontWeight: 800, padding: "3px 9px", borderRadius: 999, fontFamily: "'IBM Plex Mono', monospace", background: GOLD_BG, color: GOLD, border: `1px solid ${GOLD_DEEP}` }}>★ ORGANISMO SEGUIDO</span>
+        )}
+        {actual.oficial && (
+          <span style={{ fontSize: 10, fontWeight: 800, padding: "3px 9px", borderRadius: 999, fontFamily: "'IBM Plex Mono', monospace", background: "#141d2b", color: "#9ec1e8", border: "1px solid #3d5a80" }}>◈ TU RUBRO OFICIAL</span>
         )}
         <span aria-label={vistaActual ? "Vista" : "Recibida"} style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: vistaActual ? "#7fc7e8" : "#4a4a55", transition: "color .3s ease" }}>
           {vistaActual ? "✓✓" : "✓"}
