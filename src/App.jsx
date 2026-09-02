@@ -315,6 +315,8 @@ export default function GPProveedoresFeed() {
   const [conteos, setConteos] = useState({}); // proceso_id → {likes, carro} reales de la red
   const [redPymes, setRedPymes] = useState(null); // null = aún no cargada
   const [pymeVista, setPymeVista] = useState(null); // perfil público abierto
+  const [seguidos, setSeguidos] = useState([]); // organismos que la pyme sigue
+  const avisoSeguidos = useRef(false); // el aviso 🔔 se muestra una vez por sesión
   const accionesListas = useRef(false); // recién tras cargar la nube se permite sincronizar de vuelta
   const sincroTimer = useRef(null);
   const crudo = useRef(null);
@@ -408,9 +410,37 @@ export default function GPProveedoresFeed() {
       setGuardadas((g) => { const ids = new Set(g.map((x) => x.id)); return [...g, ...carro.filter((c) => !ids.has(c.id))]; });
       setPostuladas((p) => { const ids = new Set(p.map((x) => x.id)); return [...p, ...postu.filter((c) => !ids.has(c.id))]; });
       accionesListas.current = true;
+      const { data: seg } = await supabase.from("seguimientos").select("valor").eq("user_id", sesion.user.id).eq("tipo", "organismo");
+      if (!cancelado && seg) setSeguidos(seg.map((s) => s.valor));
     })();
     return () => { cancelado = true; };
   }, [sesion]);
+
+  // ── Seguir organismos: toggle con escritura inmediata a la nube ──
+  const toggleSeguir = (organismo) => {
+    if (!organismo) return;
+    const siguiendo = seguidos.includes(organismo);
+    setSeguidos((s) => (siguiendo ? s.filter((x) => x !== organismo) : [...s, organismo]));
+    avisar(siguiendo ? "Dejaste de seguir a este organismo" : `★ Siguiendo a ${organismo}: destacaremos sus procesos`);
+    if (supabase && sesion) {
+      if (siguiendo) {
+        supabase.from("seguimientos").delete().match({ user_id: sesion.user.id, tipo: "organismo", valor: organismo }).then(() => {});
+      } else {
+        supabase.from("seguimientos").upsert({ user_id: sesion.user.id, tipo: "organismo", valor: organismo }).then(() => {});
+      }
+    }
+  };
+
+  // Aviso al entrar: cuántas oportunidades del reparto vienen de organismos seguidos.
+  useEffect(() => {
+    if (avisoSeguidos.current || !seguidos.length || !feed.length || entrada) return;
+    const n = feed.filter((c) => seguidos.includes(c.organismo)).length;
+    if (n > 0) {
+      avisoSeguidos.current = true;
+      const t = setTimeout(() => avisar(`🔔 ${n} ${n === 1 ? "oportunidad" : "oportunidades"} de organismos que sigues en tu reparto de hoy`), 5000);
+      return () => clearTimeout(t);
+    }
+  }, [seguidos, feed, entrada]);
 
   // Cada cambio local (con sesión) se sube completo, con debounce: es la
   // forma simple de cubrir los 6 puntos que mutan carro/likes/postuladas.
@@ -996,6 +1026,9 @@ export default function GPProveedoresFeed() {
         )}
         {actual.similar && <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 999, fontFamily: "'IBM Plex Mono', monospace", color: MUTED, border: `1px solid ${BORDE}` }}>◈ SIMILAR</span>}
         {yaMarcada && <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 999, fontFamily: "'IBM Plex Mono', monospace", background: "#3a1210", color: ROJO, border: `1px solid ${ROJO}66` }}>⚑ MARCADA</span>}
+        {seguidos.includes(actual.organismo) && (
+          <span style={{ fontSize: 10, fontWeight: 800, padding: "3px 9px", borderRadius: 999, fontFamily: "'IBM Plex Mono', monospace", background: GOLD_BG, color: GOLD, border: `1px solid ${GOLD_DEEP}` }}>★ ORGANISMO SEGUIDO</span>
+        )}
         <span aria-label={vistaActual ? "Vista" : "Recibida"} style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: vistaActual ? "#7fc7e8" : "#4a4a55", transition: "color .3s ease" }}>
           {vistaActual ? "✓✓" : "✓"}
         </span>
@@ -1017,8 +1050,20 @@ export default function GPProveedoresFeed() {
       <h2 style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 800, fontSize: movil ? 24 : 27, lineHeight: 1.2, margin: "0 0 6px", color: PAPER, letterSpacing: "-0.01em" }}>
         {actual.titulo}
       </h2>
-      <div style={{ fontSize: 13.5, color: MUTED, marginBottom: 18, fontFamily: "'Manrope', sans-serif" }}>
-        {actual.organismo} · {actual.region}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
+        <span style={{ fontSize: 13.5, color: MUTED, fontFamily: "'Manrope', sans-serif" }}>
+          {actual.organismo} · {actual.region}
+        </span>
+        {(() => {
+          const sigue = seguidos.includes(actual.organismo);
+          return (
+            <button onClick={() => toggleSeguir(actual.organismo)}
+              aria-label={sigue ? `Dejar de seguir a ${actual.organismo}` : `Seguir a ${actual.organismo}`}
+              style={{ fontSize: 10.5, fontWeight: 800, fontFamily: "'IBM Plex Mono', monospace", padding: "3px 10px", borderRadius: 999, cursor: "pointer", background: sigue ? GOLD_BG : "transparent", border: `1.5px solid ${sigue ? GOLD : BORDE}`, color: sigue ? GOLD : MUTED }}>
+              {sigue ? "★ SIGUIENDO" : "+ SEGUIR"}
+            </button>
+          );
+        })()}
       </div>
 
       {/* Datos duros */}
@@ -1712,6 +1757,16 @@ export default function GPProveedoresFeed() {
                 <span key={p} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, padding: "7px 11px", borderRadius: 999, background: GOLD_BG, border: `1.5px solid ${GOLD}`, color: GOLD }}>
                   {p}
                   <button onClick={() => quitarPalabra(p)} aria-label={`Quitar ${p}`} style={{ background: "none", border: "none", color: GOLD, cursor: "pointer", fontSize: 13, padding: 0, lineHeight: 1 }}>✕</button>
+                </span>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: MUTED, marginBottom: 6 }}>Organismos que sigues (desde la tarjeta de cada oportunidad):</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+              {seguidos.length === 0 && <span style={{ fontSize: 12, color: MUTED }}>Aún no sigues organismos: toca «+ SEGUIR» en una tarjeta.</span>}
+              {seguidos.map((o) => (
+                <span key={o} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 700, padding: "6px 10px", borderRadius: 999, background: "transparent", border: `1.5px solid ${GOLD_DEEP}`, color: "#d8c8a4" }}>
+                  ★ {o}
+                  <button onClick={() => toggleSeguir(o)} aria-label={`Dejar de seguir ${o}`} style={{ background: "none", border: "none", color: "#d8c8a4", cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1 }}>✕</button>
                 </span>
               ))}
             </div>

@@ -1,8 +1,8 @@
-name: Desplegar en GitHub Pages
+name: Desplegar en GitHub Pages (DESACTIVADO: la app vive en Vercel)
 
+# 02-09-2026: producción se movió a Vercel (proveedores.gestorpublico.cl).
+# Este workflow queda solo con disparo manual por si hiciera falta volver.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

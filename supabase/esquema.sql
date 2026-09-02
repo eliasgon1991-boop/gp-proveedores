@@ -89,3 +89,32 @@ create or replace view public.conteos_publicos as
   group by proceso_id, tipo;
 
 grant select on public.conteos_publicos to anon, authenticated;
+
+-- ═══ Seguimientos: organismos que cada pyme sigue (02-09-2026) ═══
+-- Al cargar el reparto, la app avisa cuántas oportunidades vienen de
+-- organismos seguidos y las destaca en la tarjeta.
+
+create table if not exists public.seguimientos (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  tipo    text not null default 'organismo' check (tipo in ('organismo', 'rubro')),
+  valor   text not null,
+  creado  timestamptz not null default now(),
+  primary key (user_id, tipo, valor)
+);
+
+alter table public.seguimientos enable row level security;
+
+drop policy if exists "seguimientos_leer_propios" on public.seguimientos;
+create policy "seguimientos_leer_propios"
+  on public.seguimientos for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "seguimientos_crear_propios" on public.seguimientos;
+create policy "seguimientos_crear_propios"
+  on public.seguimientos for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "seguimientos_borrar_propios" on public.seguimientos;
+create policy "seguimientos_borrar_propios"
+  on public.seguimientos for delete
+  using (auth.uid() = user_id);
