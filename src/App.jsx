@@ -1,5 +1,18 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "./supabase";
+import RUBROS_MP from "./data/rubros-mp.json";
+
+// Índice plano del catálogo oficial de Mercado Público (60 rubros,
+// 361 categorías, 2.260 subcategorías) para el buscador de Mi pyme.
+const INDICE_RUBROS = [];
+for (const [rubro, cats] of Object.entries(RUBROS_MP))
+  for (const [cat, subs] of Object.entries(cats))
+    for (const [codigo, sub] of subs)
+      INDICE_RUBROS.push({ codigo, sub: sub || cat, cat, rubro });
+const STOP_RUBRO = new Set(["de", "del", "la", "el", "los", "las", "y", "o", "u", "para", "con", "en", "por", "sus", "otros", "otras", "tipo", "equipos", "equipo", "servicios", "servicio", "articulos", "productos", "suministros", "accesorios"]);
+const palabrasDesdeRubro = (t) =>
+  (t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .split(/[^a-zn]+/).filter((w) => w.length > 3 && !STOP_RUBRO.has(w)).slice(0, 2);
 
 // ═══ GP Proveedores · "Mercado Público, a domicilio" ═══
 // Diseño v2: sidebar en escritorio, rail de acciones circular estilo TikTok,
@@ -319,6 +332,8 @@ export default function GPProveedoresFeed() {
   const [pymeVista, setPymeVista] = useState(null); // perfil público abierto
   const [actividad, setActividad] = useState(null); // pulso público de la red
   const [ventas, setVentas] = useState(null); // OC reales por RUT (null=aún no, false=error)
+  const [rubrosMp, setRubrosMp] = useState([]); // selección del catálogo oficial MP
+  const [buscaRubro, setBuscaRubro] = useState("");
   const ventasRut = useRef(""); // RUT con el que se consultó, para refrescar si cambia
   const [seguidos, setSeguidos] = useState([]); // organismos que la pyme sigue
   const avisoSeguidos = useRef(false); // el aviso 🔔 se muestra una vez por sesión
@@ -388,6 +403,7 @@ export default function GPProveedoresFeed() {
         return;
       }
       if (Array.isArray(data.palabras) && data.palabras.length) setPerfil(data.palabras);
+      if (Array.isArray(data.rubros_mp) && data.rubros_mp.length) setRubrosMp(data.rubros_mp);
       if (data.rut) setRut(data.rut);
       if (data.nombre_pyme) setNombrePyme(data.nombre_pyme);
       if ((data.racha_dias || 0) > 0 && (data.racha_ultima === hoyChile() || esAyer(data.racha_ultima))) {
@@ -481,7 +497,7 @@ export default function GPProveedoresFeed() {
     if (!supabase || !sesion) return;
     supabase.from("perfiles").upsert({
       id: sesion.user.id, nombre_pyme: nombrePyme.trim() || null, rut: rut.trim() || null,
-      palabras: perfil, ...extra,
+      palabras: perfil, rubros_mp: rubrosMp, ...extra,
     }).then(({ error }) => { if (error) avisar("No se pudo sincronizar tu perfil en la nube"); });
   };
 
@@ -590,7 +606,7 @@ export default function GPProveedoresFeed() {
   useEffect(() => {
     if (panel !== "red" || !supabase || redPymes !== null) return;
     supabase.from("perfiles")
-      .select("id,nombre_pyme,palabras,region,racha_dias,racha_ultima,creado,actualizado")
+      .select("id,nombre_pyme,palabras,rubros_mp,region,racha_dias,racha_ultima,creado,actualizado")
       .order("racha_dias", { ascending: false }).limit(50)
       .then(({ data, error }) => { if (!error) setRedPymes(data || []); });
     // Pulso de la red: si la vista aún no existe, la sección no se muestra.
@@ -855,6 +871,20 @@ export default function GPProveedoresFeed() {
     setNuevaPalabra("");
   };
   const quitarPalabra = (p) => setPerfil((pf) => pf.filter((x) => x !== p));
+
+  // Rubros oficiales MP: al agregar, derivamos palabras clave para el calce.
+  const toggleRubroMp = (item) => {
+    const ya = rubrosMp.some((x) => x.codigo === item.codigo);
+    if (ya) {
+      setRubrosMp((rs) => rs.filter((x) => x.codigo !== item.codigo));
+      return;
+    }
+    setRubrosMp((rs) => [...rs, item]);
+    const claves = [...palabrasDesdeRubro(item.sub), ...palabrasDesdeRubro(item.cat)];
+    setPerfil((pf) => [...new Set([...pf, ...claves])]);
+    setBuscaRubro("");
+    avisar(`✓ Rubro oficial agregado: ${item.sub}`);
+  };
   const guardarPerfil = () => {
     if (perfil.length === 0) { avisar("Agrega al menos una palabra de tu rubro"); return; }
     if (crudo.current) {
@@ -1826,6 +1856,44 @@ export default function GPProveedoresFeed() {
                 </span>
               ))}
             </div>
+            <div style={{ fontSize: 11, color: MUTED, marginBottom: 6 }}>
+              Rubros oficiales de Mercado Público <span style={{ color: GOLD_DEEP }}>(el mismo catálogo del portal)</span>:
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 8 }}>
+              {rubrosMp.length === 0 && <span style={{ fontSize: 12, color: MUTED }}>Aún no eliges rubros oficiales…</span>}
+              {rubrosMp.map((r) => (
+                <span key={r.codigo} title={`${r.rubro} → ${r.cat} · código ONU ${r.codigo}`}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 700, padding: "6px 10px", borderRadius: 999, background: "#141d2b", border: "1.5px solid #3d5a80", color: "#9ec1e8" }}>
+                  ◈ {r.sub}
+                  <button onClick={() => toggleRubroMp(r)} aria-label={`Quitar rubro ${r.sub}`} style={{ background: "none", border: "none", color: "#9ec1e8", cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1 }}>✕</button>
+                </span>
+              ))}
+            </div>
+            <input value={buscaRubro} onChange={(e) => setBuscaRubro(e.target.value)}
+              placeholder="Busca en el catálogo oficial: aseo, notebooks, capacitación…" aria-label="Buscar rubro oficial de Mercado Público"
+              style={{ width: "100%", padding: "11px 13px", borderRadius: 12, border: `1.5px solid ${BORDE}`, background: CARD2, color: PAPER, fontSize: 13, fontFamily: "'Manrope', sans-serif", outline: "none", marginBottom: 8 }} />
+            {buscaRubro.trim().length >= 3 && (() => {
+              const q = buscaRubro.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+              const hits = INDICE_RUBROS.filter((x) => {
+                const texto = `${x.sub} ${x.cat} ${x.rubro}`.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+                return texto.includes(q);
+              }).slice(0, 10);
+              return (
+                <div style={{ marginBottom: 10, maxHeight: 220, overflowY: "auto", border: `1px solid ${BORDE}`, borderRadius: 12 }}>
+                  {hits.length === 0 && <div style={{ fontSize: 12, color: MUTED, padding: "10px 12px" }}>Sin coincidencias en el catálogo oficial.</div>}
+                  {hits.map((x) => {
+                    const ya = rubrosMp.some((r) => r.codigo === x.codigo);
+                    return (
+                      <button key={x.codigo} onClick={() => toggleRubroMp(x)} disabled={ya}
+                        style={{ display: "block", width: "100%", textAlign: "left", background: ya ? "#141d2b" : "transparent", border: "none", borderBottom: "1px solid #1b1d26", padding: "9px 12px", cursor: ya ? "default" : "pointer" }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 700, color: ya ? "#9ec1e8" : PAPER }}>{ya ? "✓ " : "+ "}{x.sub}</div>
+                        <div style={{ fontSize: 10.5, color: MUTED, marginTop: 2 }}>{x.rubro} → {x.cat}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
             <div style={{ fontSize: 11, color: MUTED, marginBottom: 6 }}>Organismos que sigues (desde la tarjeta de cada oportunidad):</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
               {seguidos.length === 0 && <span style={{ fontSize: 12, color: MUTED }}>Aún no sigues organismos: toca «+ SEGUIR» en una tarjeta.</span>}
@@ -1949,6 +2017,16 @@ export default function GPProveedoresFeed() {
                 <div style={{ fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase", color: MUTED, fontFamily: "'IBM Plex Mono', monospace", marginTop: 4 }}>rubros declarados</div>
               </div>
             </div>
+            {Array.isArray(pymeVista.rubros_mp) && pymeVista.rubros_mp.length > 0 && (
+              <>
+                <div style={{ fontSize: 11, color: MUTED, marginBottom: 8 }}>Rubros oficiales de Mercado Público:</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 14 }}>
+                  {pymeVista.rubros_mp.map((r) => (
+                    <span key={r.codigo} style={{ fontSize: 11.5, fontWeight: 700, padding: "6px 10px", borderRadius: 999, background: "#141d2b", border: "1.5px solid #3d5a80", color: "#9ec1e8" }}>◈ {r.sub}</span>
+                  ))}
+                </div>
+              </>
+            )}
             <div style={{ fontSize: 11, color: MUTED, marginBottom: 8 }}>Qué vende:</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {(pymeVista.palabras || []).length === 0 && <span style={{ fontSize: 12.5, color: MUTED }}>Esta pyme aún no declara rubros.</span>}

@@ -140,3 +140,19 @@ create or replace view public.actividad_publica as
   limit 40;
 
 grant select on public.actividad_publica to anon, authenticated;
+
+-- ═══ Catálogo oficial de rubros MP + rubros por perfil (02-09-2026) ═══
+-- catalogo_mp guarda el árbol rubro→categoría→subcategoría extraído del
+-- portal proveedor (respaldo del JSON src/data/rubros-mp.json de la app).
+
+create table if not exists public.catalogo_mp (
+  id smallint primary key,
+  datos jsonb not null,
+  actualizado timestamptz not null default now()
+);
+alter table public.catalogo_mp enable row level security;
+create policy "catalogo_leer" on public.catalogo_mp for select using (true);
+create policy "catalogo_escribir" on public.catalogo_mp for insert with check (auth.role() = 'authenticated');
+create policy "catalogo_actualizar" on public.catalogo_mp for update using (auth.role() = 'authenticated');
+
+alter table public.perfiles add column if not exists rubros_mp jsonb not null default '[]'::jsonb;
