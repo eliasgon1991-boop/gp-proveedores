@@ -17,7 +17,9 @@ window.__gpSalir = () => {
   document.body.style.overflow = "";
 };
 
-document.getElementById("gp-abrir-flotante").addEventListener("click", window.__gpAbrir);
+// El botón flotante "Probar la app en vivo" se retiró de la landing (02-09);
+// si volviera a existir, este puente lo reconecta solo.
+document.getElementById("gp-abrir-flotante")?.addEventListener("click", window.__gpAbrir);
 
 document.addEventListener("click", (ev) => {
   const el = ev.target.closest("a,button");

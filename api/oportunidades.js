@@ -9,7 +9,7 @@ export const config = { maxDuration: 60 };
 const MP_URL = "https://api.mercadopublico.cl/servicios/v1/publico/licitaciones.json";
 const DURACION_CACHE = 15 * 60 * 1000; // 15 min
 const MAX_LISTADO = 120;   // procesos que viajan al frontend
-const MAX_DETALLE = 10;    // cuántos se enriquecen con organismo/monto
+const MAX_DETALLE = 24;    // cuántos se enriquecen con organismo/monto
 
 let cache = { t: 0, data: null };
 
@@ -47,7 +47,7 @@ export default async function handler(req, res) {
           if (dd.Listado && dd.Listado[0]) listado[i] = dd.Listado[0];
         }
       } catch { /* siguiente */ }
-      await new Promise((s) => setTimeout(s, 400));
+      await new Promise((s) => setTimeout(s, 250));
     }
 
     const data = { fuente: "mercado-publico", actualizado: new Date().toISOString(), Cantidad: bruto.Cantidad, Listado: listado };
