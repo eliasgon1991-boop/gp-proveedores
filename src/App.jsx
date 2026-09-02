@@ -527,7 +527,9 @@ export default function GPProveedoresFeed() {
 
   // ── Carga en tiempo real: backend → n8n → demo ──
   useEffect(() => {
-    const candidatos = [ENDPOINT_BACKEND && `${ENDPOINT_BACKEND}/api/oportunidades`, ENDPOINT_DATOS].filter(Boolean);
+    // Primero el API propio (serverless en Vercel, mismo dominio); luego el
+    // backend externo si existe; el webhook n8n queda de respaldo.
+    const candidatos = ["/api/oportunidades", ENDPOINT_BACKEND && `${ENDPOINT_BACKEND}/api/oportunidades`, ENDPOINT_DATOS].filter(Boolean);
     if (candidatos.length === 0) return;
     let cancelado = false;
     (async () => {
@@ -775,10 +777,12 @@ export default function GPProveedoresFeed() {
 
   // ── Compartir ──
   const urlOportunidad = (o) => URL_DEMO + o.id;
+  // Enlace profundo verificado: DetailsAcquisition redirige a la ficha real
+  // (fichaLicitacion.html carga una página genérica que no siempre resuelve).
   const urlFicha = (o) =>
     o.tipo === "Compra Ágil"
       ? "https://www.mercadopublico.cl/CompraAgil"
-      : "https://www.mercadopublico.cl/fichaLicitacion.html?idLicitacion=" + encodeURIComponent(o.id);
+      : "https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=" + encodeURIComponent(o.id);
 
   const copiar = async (texto, msg) => {
     try { await navigator.clipboard.writeText(texto); avisar(msg); }
