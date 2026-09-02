@@ -302,7 +302,9 @@ export default function GPProveedoresFeed() {
   const [historial, setHistorial] = useState([]);
   const [postuladas, setPostuladas] = useState([]);
   const [rut, setRut] = useState("");
-  const [movil, setMovil] = useState(typeof window !== "undefined" && window.innerWidth < 820);
+  const [ancho, setAncho] = useState(typeof window !== "undefined" ? window.innerWidth : 1200);
+  const movil = ancho < 820;      // teléfono: pantalla completa, rail flotante
+  const xl = ancho >= 1360;       // escritorio amplio: sidebar ancho + Radar de hoy
   const [rachaDias, setRachaDias] = useState(0);
   const [rachaHoy, setRachaHoy] = useState(false);
   const [rachaRota, setRachaRota] = useState(0);
@@ -511,7 +513,7 @@ export default function GPProveedoresFeed() {
   };
 
   useEffect(() => {
-    const onResize = () => setMovil(window.innerWidth < 820);
+    const onResize = () => setAncho(window.innerWidth);
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
@@ -1009,7 +1011,7 @@ export default function GPProveedoresFeed() {
       role="group" aria-label={`Oportunidad: ${actual.titulo}`}
       style={{
         position: "relative",
-        width: movil ? "100%" : "min(560px, 44vw)",
+        width: movil ? "100%" : xl ? "min(660px, 42vw)" : "min(600px, 55vw)",
         height: movil ? "100%" : "calc(100vh - 96px)",
         maxHeight: movil ? "none" : 880,
         background: CARD_GRAD,
@@ -1525,7 +1527,7 @@ export default function GPProveedoresFeed() {
     <div style={{
       fontFamily: "'Manrope', system-ui, sans-serif",
       background: INK, height: "100vh", overflow: "hidden",
-      display: "grid", gridTemplateColumns: movil ? "1fr" : "230px 1fr",
+      display: "grid", gridTemplateColumns: movil ? "1fr" : xl ? "290px 1fr 330px" : "260px 1fr",
       color: PAPER, userSelect: "none", touchAction: "none",
     }}>
       <style>{`
@@ -2140,6 +2142,59 @@ export default function GPProveedoresFeed() {
           </div>
         )}
       </main>
+
+      {/* ── Radar de hoy (columna derecha, solo escritorio amplio) ── */}
+      {!movil && xl && (
+        <aside style={{ borderLeft: "1px solid #1b1d26", padding: "26px 20px", background: "#080a10", overflowY: "auto", display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.12em", color: GOLD_DEEP, fontFamily: "'IBM Plex Mono', monospace" }}>◉ RADAR DE HOY</div>
+
+          {/* Cierran pronto */}
+          <div>
+            <div style={{ fontSize: 11.5, fontWeight: 800, color: "#ff8a3d", marginBottom: 8 }}>⏱ Cierran pronto</div>
+            {feed.filter(esUrgente).slice(0, 5).map((c) => (
+              <button key={c.id} onClick={() => cambiarFiltro("urgentes")}
+                style={{ display: "block", width: "100%", textAlign: "left", background: CARD2, border: `1px solid ${BORDE}`, borderRadius: 12, padding: "9px 11px", marginBottom: 6, cursor: "pointer" }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: PAPER, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.titulo}</div>
+                <div style={{ fontSize: 10.5, color: MUTED, marginTop: 2, fontFamily: "'IBM Plex Mono', monospace" }}>
+                  <span style={{ color: "#ff8a3d", fontWeight: 700 }}>{c.cierre}</span> · {c.monto}
+                </div>
+              </button>
+            ))}
+            {feed.filter(esUrgente).length === 0 && (
+              <div style={{ fontSize: 11.5, color: MUTED }}>Sin cierres inminentes en tu reparto.</div>
+            )}
+          </div>
+
+          {/* Mi pipeline */}
+          <div>
+            <div style={{ fontSize: 11.5, fontWeight: 800, color: "#c9c6bf", marginBottom: 8 }}>🛒 Mi pipeline</div>
+            <button onClick={() => setPanel("carro")}
+              style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, width: "100%", background: "transparent", border: "none", padding: 0, cursor: "pointer" }}>
+              {[["📋", guardadas.filter((g) => (g.etapa ?? "revisando") === "revisando").length], ["🛠", guardadas.filter((g) => g.etapa === "preparando").length], ["📨", postuladas.filter((p) => p.resultado === null).length]].map(([e, n], i) => (
+                <span key={i} style={{ background: CARD2, border: `1px solid ${BORDE}`, borderRadius: 11, padding: "8px 4px", textAlign: "center" }}>
+                  <span style={{ display: "block", fontSize: 13 }}>{e}</span>
+                  <span style={{ display: "block", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 15, color: n > 0 ? "#ffd479" : MUTED }}>{n}</span>
+                </span>
+              ))}
+            </button>
+          </div>
+
+          {/* Organismos seguidos */}
+          <div>
+            <div style={{ fontSize: 11.5, fontWeight: 800, color: "#c9c6bf", marginBottom: 8 }}>★ Sigues a {seguidos.length} {seguidos.length === 1 ? "organismo" : "organismos"}</div>
+            {seguidos.slice(0, 4).map((o) => (
+              <div key={o} style={{ fontSize: 11.5, color: "#d8c8a4", padding: "5px 0", borderBottom: "1px solid #1b1d26", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>★ {o}</div>
+            ))}
+            {seguidos.length === 0 && (
+              <div style={{ fontSize: 11.5, color: MUTED, lineHeight: 1.5 }}>Toca «+ SEGUIR» en una tarjeta para destacar a tus compradores clave.</div>
+            )}
+          </div>
+
+          <div style={{ marginTop: "auto", fontSize: 10, color: "#4a4a55", lineHeight: 1.5, fontFamily: "'IBM Plex Mono', monospace" }}>
+            {feed.filter((c) => !c.similar).length} oportunidades calzadas hoy
+          </div>
+        </aside>
+      )}
     </div>
   );
 }
