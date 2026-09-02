@@ -442,6 +442,18 @@ export default function GPProveedoresFeed() {
     }
   }, [seguidos, feed, entrada]);
 
+  // Aviso de urgencia del pipeline: procesos guardados que cierran hoy o mañana.
+  const avisoPipeline = useRef(false);
+  useEffect(() => {
+    if (avisoPipeline.current || entrada) return;
+    const n = guardadas.filter(esUrgente).length;
+    if (n > 0) {
+      avisoPipeline.current = true;
+      const t = setTimeout(() => avisar(`⚠ ${n} ${n === 1 ? "proceso de tu pipeline cierra" : "procesos de tu pipeline cierran"} hoy o mañana: revisa Mis procesos`), 8000);
+      return () => clearTimeout(t);
+    }
+  }, [guardadas, entrada]);
+
   // Cada cambio local (con sesión) se sube completo, con debounce: es la
   // forma simple de cubrir los 6 puntos que mutan carro/likes/postuladas.
   useEffect(() => {
@@ -711,6 +723,13 @@ export default function GPProveedoresFeed() {
   };
 
   // ── Ciclo de postulación: carro → postulada → adjudicada/no resultó ──
+  // Pipeline: cada proceso del carro avanza Revisando → Preparando → Postulada.
+  // La etapa viaja dentro de la tarjeta, así se sincroniza sola a la nube.
+  const cambiarEtapa = (g, etapa) => {
+    setGuardadas((gs) => gs.map((x) => (x.id === g.id ? { ...x, etapa } : x)));
+    avisar(etapa === "preparando" ? "🛠 A preparar la oferta: bases, anexos y garantías" : "Proceso devuelto a Revisando");
+  };
+
   const marcarPostulada = (g) => {
     setGuardadas((gs) => gs.filter((x) => x.id !== g.id));
     setPostuladas((p) => [...p, { ...g, resultado: null }]);
@@ -861,7 +880,7 @@ export default function GPProveedoresFeed() {
   const NAVS = [
     { id: "reparto", icono: "feed", label: "Para tu pyme", badge: String(calzadas), onClick: () => cambiarFiltro("todas") },
     { id: "urgentes", icono: "clock", label: "Cierran hoy", badge: String(feed.filter(esUrgente).length), onClick: () => cambiarFiltro("urgentes") },
-    { id: "carro", icono: "cart", label: "Mi carro", badge: String(guardadas.length), onClick: () => setPanel("carro") },
+    { id: "carro", icono: "cart", label: "Mis procesos", badge: String(guardadas.length + postuladas.filter((p) => p.resultado === null).length), onClick: () => setPanel("carro") },
     { id: "pyme", icono: "user", label: "Mi pyme", badge: "", onClick: () => setPanel("perfil") },
     { id: "panel", icono: "chart", label: "Panel BI", badge: "", onClick: () => setPanel("negocio") },
     { id: "red", icono: "red", label: "Red de pymes", badge: "", onClick: () => setPanel("red") },
@@ -1919,55 +1938,101 @@ export default function GPProveedoresFeed() {
         )}
 
         {panel === "carro" && (
-          <Hoja titulo="Tu carro de ventas" cerrar={() => setPanel(null)} movil={movil}>
-            {guardadas.length === 0 ? (
-              <p style={{ fontSize: 13, color: MUTED, lineHeight: 1.6, margin: 0 }}>
-                Tu carro está vacío. Desliza el feed y toca el carrito en las oportunidades donde tu pyme puede vender: aquí se va sumando tu venta potencial.
-              </p>
-            ) : (
-              <>
-                {(() => {
-                  const enPesos = guardadas.filter((g) => (g.monto || "").startsWith("$"));
-                  const total = enPesos.reduce((s, g) => s + (Number((g.monto || "").replace(/\D/g, "")) || 0), 0);
-                  const otras = guardadas.length - enPesos.length;
-                  return (
-                    <div style={{ background: `linear-gradient(180deg, ${GOLD_BG}, transparent)`, border: `1.5px solid ${GOLD_DEEP}`, borderRadius: 16, padding: "14px 16px", marginBottom: 14, textAlign: "center" }}>
-                      <div style={{ fontSize: 9.5, letterSpacing: "0.12em", textTransform: "uppercase", color: GOLD_DEEP, fontFamily: "'IBM Plex Mono', monospace" }}>Venta potencial en tu carro</div>
-                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 27, color: "#ffd479", margin: "4px 0 2px" }}>${total.toLocaleString("es-CL")}</div>
-                      <div style={{ fontSize: 11, color: MUTED }}>
-                        {guardadas.length} {guardadas.length === 1 ? "oportunidad" : "oportunidades"}
-                        {otras > 0 && ` · ${otras} adicional${otras > 1 ? "es" : ""} en UTM o por confirmar`}
-                      </div>
+          <Hoja titulo="Mis procesos de venta" cerrar={() => setPanel(null)} movil={movil}>
+            {(() => {
+              const revisando = guardadas.filter((g) => (g.etapa ?? "revisando") === "revisando");
+              const preparando = guardadas.filter((g) => g.etapa === "preparando");
+              const enJuego = postuladas.filter((p) => p.resultado === null);
+              const resueltas = postuladas.filter((p) => p.resultado !== null);
+              const enPesos = guardadas.filter((g) => (g.monto || "").startsWith("$"));
+              const total = enPesos.reduce((s, g) => s + (Number((g.monto || "").replace(/\D/g, "")) || 0), 0);
+              const FilaProceso = ({ g, acciones }) => (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 13, border: `1px solid ${esUrgente(g) ? "#ff8a3d66" : BORDE}`, background: CARD2, marginBottom: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: PAPER }}>{g.titulo}</div>
+                    <div style={{ fontSize: 11, marginTop: 2, fontFamily: "'IBM Plex Mono', monospace", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      <span style={{ color: GOLD }}>{g.monto}</span> · <span style={{ color: esUrgente(g) ? "#ff8a3d" : MUTED, fontWeight: esUrgente(g) ? 700 : 500 }}>{esUrgente(g) ? `⚠ ${g.cierre}` : g.cierre}</span> · {g.organismo}
                     </div>
-                  );
-                })()}
-                {guardadas.map((g) => (
-                  <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 13, border: `1px solid ${BORDE}`, background: CARD2, marginBottom: 8 }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: PAPER }}>{g.titulo}</div>
-                      <div style={{ fontSize: 11, color: MUTED, marginTop: 2, fontFamily: "'IBM Plex Mono', monospace" }}>
-                        <span style={{ color: GOLD }}>{g.monto}</span> · {g.cierre} · {g.id}
-                      </div>
-                    </div>
-                    <button onClick={() => marcarPostulada(g)} aria-label={`Marcar ${g.id} como postulada`}
-                      style={{ background: "#12251d", border: `1.5px solid ${VERDE}`, borderRadius: 9, color: VERDE, cursor: "pointer", fontSize: 11, padding: "6px 8px", fontWeight: 700 }}>Postulé ✓</button>
-                    <button onClick={() => window.open(urlFicha(g), "_blank")} aria-label={`Abrir ficha de ${g.id}`}
-                      style={{ background: "none", border: `1.5px solid ${GOLD}`, borderRadius: 9, color: GOLD, cursor: "pointer", fontSize: 12, padding: "6px 9px", fontWeight: 700 }}>↗</button>
-                    <button onClick={() => { setGuardadas((gs) => gs.filter((x) => x.id !== g.id)); avisar("Quitada del carro"); }} aria-label={`Quitar ${g.id}`}
-                      style={{ background: "none", border: `1.5px solid ${BORDE}`, borderRadius: 9, color: "#c9c6bf", cursor: "pointer", fontSize: 12, padding: "6px 9px" }}>✕</button>
                   </div>
-                ))}
-                <button onClick={() => { setPanel(null); avisar("A postular: cada ficha se abre con ↗"); }} style={{ ...btn({ fondo: GOLD, borde: GOLD, color: SOBRE_GOLD, peso: 800 }), width: "100%", marginTop: 6 }}>
-                  Ir a postular mi carro →
-                </button>
-                <p style={{ fontSize: 10.5, color: "#6d6d76", textAlign: "center", margin: "10px 0 0", lineHeight: 1.5 }}>
-                  Compra invertida: aquí no gastas, sumas venta potencial. Postular es tu checkout.
-                </p>
-              </>
-            )}
+                  {acciones}
+                </div>
+              );
+              const Cabecera = ({ emoji, texto, n, color = GOLD_DEEP }) => (
+                <div style={{ display: "flex", alignItems: "center", gap: 7, margin: "16px 0 8px" }}>
+                  <span style={{ fontSize: 13 }}>{emoji}</span>
+                  <span style={{ fontSize: 10.5, color, fontWeight: 700, letterSpacing: "0.09em", fontFamily: "'IBM Plex Mono', monospace" }}>{texto}</span>
+                  <span style={{ fontSize: 10.5, color: MUTED, fontFamily: "'IBM Plex Mono', monospace" }}>({n})</span>
+                </div>
+              );
+              const bt = (extra = {}) => ({ borderRadius: 9, cursor: "pointer", fontSize: 11, padding: "6px 8px", fontWeight: 700, ...extra });
+              return (
+                <>
+                  {/* Resumen del pipeline */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, marginBottom: 12 }}>
+                    {[["📋", "Revisando", revisando.length], ["🛠", "Preparando", preparando.length], ["📨", "Postuladas", enJuego.length], ["🏆", "Ganadas", resueltas.filter((r) => r.resultado === "adjudicada").length]].map(([e, t, n]) => (
+                      <div key={t} style={{ background: CARD2, border: `1px solid ${BORDE}`, borderRadius: 12, padding: "9px 6px", textAlign: "center" }}>
+                        <div style={{ fontSize: 15 }}>{e}</div>
+                        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 16, color: n > 0 ? "#ffd479" : MUTED }}>{n}</div>
+                        <div style={{ fontSize: 8.5, letterSpacing: "0.06em", textTransform: "uppercase", color: MUTED, fontFamily: "'IBM Plex Mono', monospace" }}>{t}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {guardadas.length + postuladas.length === 0 && (
+                    <p style={{ fontSize: 13, color: MUTED, lineHeight: 1.6, margin: 0 }}>
+                      Tu pipeline está vacío. Desliza el feed y toca el carrito en las oportunidades donde tu pyme puede vender: entran aquí en etapa «Revisando» y las llevas hasta la adjudicación.
+                    </p>
+                  )}
+                  {guardadas.length > 0 && (
+                    <div style={{ background: `linear-gradient(180deg, ${GOLD_BG}, transparent)`, border: `1.5px solid ${GOLD_DEEP}`, borderRadius: 16, padding: "12px 16px", marginBottom: 4, textAlign: "center" }}>
+                      <div style={{ fontSize: 9.5, letterSpacing: "0.12em", textTransform: "uppercase", color: GOLD_DEEP, fontFamily: "'IBM Plex Mono', monospace" }}>Venta potencial en juego</div>
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 25, color: "#ffd479", margin: "3px 0 0" }}>${total.toLocaleString("es-CL")}</div>
+                    </div>
+                  )}
+                  {revisando.length > 0 && (
+                    <>
+                      <Cabecera emoji="📋" texto="REVISANDO" n={revisando.length} />
+                      {revisando.map((g) => (
+                        <FilaProceso key={g.id} g={g} acciones={
+                          <>
+                            <button onClick={() => cambiarEtapa(g, "preparando")} aria-label={`Preparar oferta de ${g.id}`}
+                              style={bt({ background: GOLD_BG, border: `1.5px solid ${GOLD}`, color: GOLD })}>Preparar 🛠</button>
+                            <button onClick={() => window.open(urlFicha(g), "_blank")} aria-label={`Abrir ficha de ${g.id}`}
+                              style={bt({ background: "none", border: `1.5px solid ${BORDE}`, color: "#c9c6bf" })}>↗</button>
+                            <button onClick={() => { setGuardadas((gs) => gs.filter((x) => x.id !== g.id)); avisar("Proceso quitado del pipeline"); }} aria-label={`Quitar ${g.id}`}
+                              style={bt({ background: "none", border: `1.5px solid ${BORDE}`, color: MUTED })}>✕</button>
+                          </>
+                        } />
+                      ))}
+                    </>
+                  )}
+                  {preparando.length > 0 && (
+                    <>
+                      <Cabecera emoji="🛠" texto="PREPARANDO OFERTA" n={preparando.length} color={GOLD} />
+                      {preparando.map((g) => (
+                        <FilaProceso key={g.id} g={g} acciones={
+                          <>
+                            <button onClick={() => marcarPostulada(g)} aria-label={`Marcar ${g.id} como postulada`}
+                              style={bt({ background: "#12251d", border: `1.5px solid ${VERDE}`, color: VERDE })}>Postulé ✓</button>
+                            <button onClick={() => window.open(urlFicha(g), "_blank")} aria-label={`Abrir ficha de ${g.id}`}
+                              style={bt({ background: "none", border: `1.5px solid ${GOLD}`, color: GOLD })}>↗</button>
+                            <button onClick={() => cambiarEtapa(g, "revisando")} aria-label={`Devolver ${g.id} a revisando`}
+                              style={bt({ background: "none", border: `1.5px solid ${BORDE}`, color: MUTED })}>↩</button>
+                          </>
+                        } />
+                      ))}
+                    </>
+                  )}
+                  {guardadas.length > 0 && (
+                    <p style={{ fontSize: 10.5, color: "#6d6d76", textAlign: "center", margin: "12px 0 0", lineHeight: 1.5 }}>
+                      Compra invertida: aquí no gastas, sumas venta potencial. Postular es tu checkout.
+                    </p>
+                  )}
+                </>
+              );
+            })()}
             {postuladas.length > 0 && (
               <div style={{ marginTop: 16 }}>
-                <div style={{ fontSize: 10.5, color: GOLD, fontWeight: 700, letterSpacing: "0.08em", fontFamily: "'IBM Plex Mono', monospace", marginBottom: 8 }}>TUS POSTULACIONES</div>
+                <div style={{ fontSize: 10.5, color: GOLD, fontWeight: 700, letterSpacing: "0.08em", fontFamily: "'IBM Plex Mono', monospace", marginBottom: 8 }}>📨 POSTULADAS Y RESULTADOS</div>
                 {postuladas.map((g) => (
                   <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 13, border: `1px solid ${g.resultado === "adjudicada" ? GOLD_DEEP : BORDE}`, background: g.resultado === "adjudicada" ? GOLD_BG : CARD2, marginBottom: 8 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
