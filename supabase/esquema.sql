@@ -156,3 +156,39 @@ create policy "catalogo_escribir" on public.catalogo_mp for insert with check (a
 create policy "catalogo_actualizar" on public.catalogo_mp for update using (auth.role() = 'authenticated');
 
 alter table public.perfiles add column if not exists rubros_mp jsonb not null default '[]'::jsonb;
+
+-- ═══ Comentarios por oportunidad (02-09-2026) ═══
+-- Conversación pública de la red sobre cada proceso: preguntas, datos y
+-- alertas entre pymes. La identidad visible es el nombre público de la pyme.
+
+create table if not exists public.comentarios (
+  id         bigint generated always as identity primary key,
+  proceso_id text not null,
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  texto      text not null check (char_length(texto) between 2 and 600),
+  creado     timestamptz not null default now()
+);
+create index if not exists comentarios_proceso on public.comentarios (proceso_id, creado desc);
+
+alter table public.comentarios enable row level security;
+
+drop policy if exists "comentarios_leer" on public.comentarios;
+create policy "comentarios_leer" on public.comentarios for select using (true);
+
+drop policy if exists "comentarios_crear" on public.comentarios;
+create policy "comentarios_crear" on public.comentarios for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "comentarios_borrar_propios" on public.comentarios;
+create policy "comentarios_borrar_propios" on public.comentarios for delete
+  using (auth.uid() = user_id);
+
+-- Vista con autor resuelto (nombre de pyme y rubro) para pintar la conversación.
+create or replace view public.comentarios_publicos as
+  select c.id, c.proceso_id, c.texto, c.creado, c.user_id,
+         coalesce(p.nombre_pyme, 'Una pyme de ' || coalesce(p.palabras[1], 'la red')) as autor
+  from public.comentarios c
+  join public.perfiles p on p.id = c.user_id
+  order by c.creado asc;
+
+grant select on public.comentarios_publicos to anon, authenticated;

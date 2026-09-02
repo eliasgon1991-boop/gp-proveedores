@@ -357,6 +357,9 @@ export default function GPProveedoresFeed() {
   const [pymeVista, setPymeVista] = useState(null); // perfil público abierto
   const [actividad, setActividad] = useState(null); // pulso público de la red
   const [ventas, setVentas] = useState(null); // OC reales por RUT (null=aún no, false=error)
+  const [comentarios, setComentarios] = useState(null); // hilo del proceso abierto
+  const [comentarioTxt, setComentarioTxt] = useState("");
+  const [conteosCom, setConteosCom] = useState({}); // proceso_id → nº comentarios
   const [rubrosMp, setRubrosMp] = useState([]); // selección del catálogo oficial MP
   const [buscaRubro, setBuscaRubro] = useState("");
   const rubrosMpRef = useRef([]); // los efectos de carga leen la selección vigente
@@ -637,6 +640,13 @@ export default function GPProveedoresFeed() {
         data.forEach((r) => { (m[r.proceso_id] ??= { likes: 0, carro: 0 })[r.tipo === "like" ? "likes" : "carro"] = r.total; });
         setConteos(m);
       });
+    supabase.from("comentarios_publicos").select("proceso_id").in("proceso_id", idsConteo.split(",")).limit(500)
+      .then(({ data, error }) => {
+        if (cancelado || error || !data) return;
+        const m = {};
+        data.forEach((r) => { m[r.proceso_id] = (m[r.proceso_id] || 0) + 1; });
+        setConteosCom(m);
+      });
     return () => { cancelado = true; };
   }, [idsConteo]);
   // Con datos reales manda la red (mi acción ya viene contada tras el sync);
@@ -674,6 +684,26 @@ export default function GPProveedoresFeed() {
       .then((d) => setVentas(d))
       .catch(() => setVentas(false));
   }, [panel, rut]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Comentarios del proceso abierto ──
+  useEffect(() => {
+    if (panel !== "comentarios" || !actual || !supabase) return;
+    setComentarios(null);
+    supabase.from("comentarios_publicos").select("*").eq("proceso_id", actual.id)
+      .then(({ data, error }) => setComentarios(error ? [] : data || []));
+  }, [panel, actual?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const enviarComentario = async () => {
+    const texto = comentarioTxt.trim();
+    if (texto.length < 2) { avisar("Escribe tu pregunta o comentario primero"); return; }
+    if (!supabase || !sesion || !actual) return;
+    const { error } = await supabase.from("comentarios").insert({ proceso_id: actual.id, user_id: sesion.user.id, texto });
+    if (error) { avisar("No se pudo publicar el comentario"); return; }
+    setComentarios((c) => [...(c || []), { id: Date.now(), proceso_id: actual.id, texto, creado: new Date().toISOString(), user_id: sesion.user.id, autor: nombrePyme.trim() || "Tu pyme" }]);
+    setConteosCom((m) => ({ ...m, [actual.id]: (m[actual.id] || 0) + 1 }));
+    setComentarioTxt("");
+    avisar("💬 Publicado para toda la red");
+  };
 
   const haceCuanto = (iso) => {
     const min = Math.max(0, Math.round((Date.now() - new Date(iso)) / 60000));
@@ -1283,11 +1313,17 @@ export default function GPProveedoresFeed() {
         {actual.tags.map((t) => (
           <span key={t} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 999, background: CARD2, border: `1px solid ${BORDE}`, color: "#c9c6bf", fontFamily: "'Manrope', sans-serif" }}>{t}</span>
         ))}
-        {(actual.social || conteos[actual.id]) && (
-          <span style={{ fontSize: 11, color: MUTED, marginLeft: "auto", fontFamily: "'IBM Plex Mono', monospace" }}>
-            ♥ {conteoDe(actual, gustada, enCarro).likes} · 🛒 {conteoDe(actual, gustada, enCarro).carro} pymes
-          </span>
-        )}
+        <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 10 }}>
+          {(actual.social || conteos[actual.id]) && (
+            <span style={{ fontSize: 11, color: MUTED, fontFamily: "'IBM Plex Mono', monospace" }}>
+              ♥ {conteoDe(actual, gustada, enCarro).likes} · 🛒 {conteoDe(actual, gustada, enCarro).carro} pymes
+            </span>
+          )}
+          <button onClick={() => setPanel("comentarios")} aria-label="Ver comentarios de la red"
+            style={{ fontSize: 11, fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace", background: (conteosCom[actual.id] || 0) > 0 ? GOLD_BG : "transparent", border: `1px solid ${(conteosCom[actual.id] || 0) > 0 ? GOLD_DEEP : BORDE}`, color: (conteosCom[actual.id] || 0) > 0 ? GOLD : MUTED, borderRadius: 999, padding: "3px 10px", cursor: "pointer" }}>
+            💬 {conteosCom[actual.id] || 0}
+          </button>
+        </span>
       </div>
 
       {/* Acciones principales */}
@@ -2143,6 +2179,42 @@ export default function GPProveedoresFeed() {
               {(pymeVista.palabras || []).map((p) => (
                 <span key={p} style={{ fontSize: 12.5, fontWeight: 700, padding: "7px 12px", borderRadius: 999, background: GOLD_BG, border: `1.5px solid ${GOLD}`, color: GOLD }}>{p}</span>
               ))}
+            </div>
+          </Hoja>
+        )}
+
+        {panel === "comentarios" && actual && (
+          <Hoja titulo={`💬 La red comenta · ID ${actual.id}`} cerrar={() => setPanel(null)} movil={movil}>
+            <p style={{ fontSize: 12, color: "#c9c6bf", lineHeight: 1.5, margin: "0 0 12px" }}>
+              Pregunta, comparte datos o alerta a otras pymes sobre este proceso. Tu nombre público firma cada aporte.
+            </p>
+            <div style={{ maxHeight: 300, overflowY: "auto", marginBottom: 12 }}>
+              {comentarios === null && <div style={{ fontSize: 12, color: MUTED }}>Cargando conversación…</div>}
+              {comentarios && comentarios.length === 0 && (
+                <div style={{ fontSize: 12.5, color: MUTED, background: CARD2, border: `1px dashed ${BORDE}`, borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
+                  Nadie ha comentado aún. Sé la primera pyme en abrir la conversación 🚀
+                </div>
+              )}
+              {(comentarios || []).map((c) => (
+                <div key={c.id} style={{ background: c.user_id === sesion?.user?.id ? GOLD_BG : CARD2, border: `1px solid ${c.user_id === sesion?.user?.id ? "rgba(239,183,0,.25)" : BORDE}`, borderRadius: 12, padding: "9px 12px", marginBottom: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 800, color: c.user_id === sesion?.user?.id ? GOLD : "#9ec1e8" }}>{c.autor}</span>
+                    <span style={{ fontSize: 10, color: "#6d6d76", fontFamily: "'IBM Plex Mono', monospace" }}>{haceCuanto(c.creado)}</span>
+                    {c.user_id === sesion?.user?.id && (
+                      <button onClick={async () => { await supabase.from("comentarios").delete().eq("id", c.id); setComentarios((cs) => cs.filter((x) => x.id !== c.id)); setConteosCom((m) => ({ ...m, [actual.id]: Math.max(0, (m[actual.id] || 1) - 1) })); }}
+                        aria-label="Borrar mi comentario" style={{ marginLeft: "auto", background: "none", border: "none", color: MUTED, cursor: "pointer", fontSize: 11, padding: 0 }}>✕</button>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12.5, color: PAPER, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{c.texto}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input value={comentarioTxt} onChange={(e) => setComentarioTxt(e.target.value.slice(0, 600))}
+                onKeyDown={(e) => { if (e.key === "Enter") enviarComentario(); }}
+                placeholder="Ej: ¿Alguien conoce los plazos de pago de este organismo?" aria-label="Escribir comentario"
+                style={{ flex: 1, padding: "11px 13px", borderRadius: 12, border: `1.5px solid ${BORDE}`, background: CARD2, color: PAPER, fontSize: 13, fontFamily: "'Manrope', sans-serif", outline: "none" }} />
+              <button onClick={enviarComentario} style={{ ...btn({ fondo: GOLD, borde: GOLD, color: SOBRE_GOLD, peso: 800 }), flex: "0 0 auto", padding: "11px 16px" }}>Publicar</button>
             </div>
           </Hoja>
         )}
