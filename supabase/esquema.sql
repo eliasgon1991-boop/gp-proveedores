@@ -203,7 +203,9 @@ grant select on public.comentarios_publicos to anon, authenticated;
 create table if not exists public.invitaciones (
   codigo    text primary key,
   creador   uuid not null references auth.users (id) on delete cascade,
-  usado_por uuid references auth.users (id),
+  -- usado_por SIN foreign key a propósito: el trigger lo marca ANTES de que
+  -- el usuario invitado exista en auth.users (con FK el canje fallaba).
+  usado_por uuid,
   creado    timestamptz not null default now(),
   usado_en  timestamptz
 );
