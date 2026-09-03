@@ -909,6 +909,9 @@ export default function GPProveedoresFeed() {
   // ── Arrastre ──
   const onPointerDown = (e) => {
     if (!actual || saliendo || panel) return;
+    // Los controles internos reciben su clic normal: capturar el puntero
+    // aquí les robaba el click a "Ver ficha", "Pasar", "+ Seguir", etc.
+    if (e.target.closest("button, a, input, textarea")) return;
     drag.current = { activo: true, y0: e.clientY };
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
